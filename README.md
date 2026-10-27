@@ -112,6 +112,7 @@ tests/unit/                  file shape, generators, projects, policy, best-case
 tests/cluster/               one module per lesson step, run against the fleet
 docs/adr/                    decision records
 versions.env                 every pinned version
+tech/                     one beginner-level note per technology this repository uses, from zero; start at tech/README.md
 ```
 
 Dependency rule: tests depend on the scripts and `tests/support`; scripts depend on `scripts/lib.sh`; `manifests/` depends on nothing. `platform/` is never read by the watched repository.
