@@ -39,6 +39,74 @@ Removing the file alone would break the build (Kustomize reports a missing resou
 
 `platform/argocd/kustomization.yaml` is identical in structure to the first project's: remote `install.yaml` at v3.5.6, `namespace: argocd`, a strategic-merge patch `controller-settings.yaml` that sets `timeout.reconciliation: 20s` and jitter `0s`, and two `$patch: delete` targets (Dex, notifications). See that repository's Kustomize note for each key.
 
+<!-- full-walkthrough:begin -->
+### 5.A Full walkthrough: every Kustomize file
+
+**Words you need first.** **Kustomize** builds the final Kubernetes YAML from simple pieces without templates. A folder becomes a Kustomize unit when it contains a file named exactly `kustomization.yaml`; every such file starts with `apiVersion` and `kind: Kustomization`.
+
+#### `manifests/apps/web/base/kustomization.yaml`
+
+```yaml
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - deployment.yaml
+  - service.yaml
+```
+
+- `resources:` lists the files to include: the namespace, the ConfigMap, the Deployment and the Service. There is **no overlay** in this project: every cluster gets the same manifests; what differs per stage is the *commit* and the prune setting, not the content. A file not listed is ignored, which is why the destructive-commit step removes `namespace.yaml` **and** its line from this list.
+
+#### `platform/git-server/kustomization.yaml`
+
+```yaml
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - git-server.yaml
+```
+
+- Lists the one file with all the Git server objects.
+
+#### `platform/argocd/kustomization.yaml` and `platform/flux/kustomization.yaml`
+
+```yaml
+---
+# Argo CD at the version in versions.env (the tag below must match ARGOCD_VERSION), trimmed for a laptop:
+# no Dex (no single sign-on), no notifications, and a short poll interval so the runbook does not wait
+# three minutes for every change.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: argocd
+resources:
+  - namespace.yaml
+  - https://raw.githubusercontent.com/argoproj/argo-cd/v3.5.6/manifests/install.yaml
+patches:
+  - path: controller-settings.yaml
+  - target: { kind: Deployment, name: argocd-dex-server }
+    patch: |-
+      $patch: delete
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: argocd-dex-server
+  - target: { kind: Deployment, name: argocd-notifications-controller }
+    patch: |-
+      $patch: delete
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: argocd-notifications-controller
+```
+
+- `namespace: argocd` puts every built object in that namespace.
+- Under `resources`, a plain address starting with `https://` is downloaded and built; here the official install file of Argo CD at version `v3.5.6` (the version is in the address, so it cannot change silently).
+- `patches:` changes parts of the downloaded objects. `path: controller-settings.yaml` merges that file into the object with the same kind and name (`argocd-cm`). The two others use `target:` to pick an object (`kind: Deployment`, `name: argocd-dex-server`) and a `patch: |-` block (a block of text, written under a `|-`) whose content is `$patch: delete` plus the object's identity: it tells Kustomize to **remove** that object from the result. The same is done for the notifications controller.
+<!-- full-walkthrough:end -->
+
 ## 6. Try it yourself
 
 1. `kubectl kustomize manifests/apps/web/base | grep -c '^kind:'` : 4.

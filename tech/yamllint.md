@@ -39,6 +39,37 @@ rules:
 ```
 (The file writes each rule over several lines.) `ignore:` is a block of paths. `line-length` 140 allows long commands in the workflow. `document-start` requires `---`. `truthy` allows only `true` and `false`, so YAML 1.1 words like `yes`/`on` are errors, and `check-keys: false` lets GitHub Actions' key `on:` pass. `comments` wants two spaces before `# text` that follows a value. `braces` and `brackets` allow one space inside `{ }` and `[ ]` (`target: { kind: Deployment }`) or none (`{}`).
 
+<!-- full-walkthrough:begin -->
+### 5.A Full walkthrough: the whole `.yamllint.yaml`
+
+```yaml
+---
+extends: default
+ignore: |
+  .venv/
+  .work/
+rules:
+  line-length:
+    max: 140
+  document-start:
+    present: true
+  truthy:
+    allowed-values: ["true", "false"]
+    check-keys: false
+  comments:
+    min-spaces-from-content: 2
+  braces:
+    min-spaces-inside: 0
+    max-spaces-inside: 1
+  brackets:
+    min-spaces-inside: 0
+    max-spaces-inside: 1
+```
+
+- `---` starts the YAML document (required at the top of every YAML file here). `extends: default` begins from yamllint's built-in rules. `ignore: |` is a block of text (the `|` keeps line breaks) listing folders to skip: the virtual environment and the working clone.
+- `line-length: max: 140` allows long lines (the manifests contain long image names and JSONPath expressions). `document-start: present: true` demands `---`. `truthy: allowed-values: ["true", "false"]` accepts only those words as booleans (YAML 1.1 also reads `yes`/`no`/`on`/`off` as booleans, which surprises people); `check-keys: false` skips key names (GitHub Actions has a key `on`). `comments: min-spaces-from-content: 2` wants two spaces before a `#` that follows content. `braces` and `brackets` allow zero or one space inside `{}` and `[]` (the projects use `{ server: "*", namespace: web }`).
+<!-- full-walkthrough:end -->
+
 ## 6. Try it yourself
 
 1. `.venv/bin/yamllint -s .` : no output.

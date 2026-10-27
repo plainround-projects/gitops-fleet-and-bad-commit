@@ -75,6 +75,146 @@ Each generated Application is named `web-<cluster>`, uses the project of its sta
 
 The consequences the runbook shows: pinning staging is a one-line commit in `clusters/staging.yaml`; adding the fourth cluster with a `stage=dev` label creates `web-demo4` at once; deleting its Secret deletes the Application (and, with `resources-finalizer`, what it created is cleaned up per the Application's finalizers).
 
+<!-- full-walkthrough:begin -->
+### 5.A Full walkthrough: both ApplicationSets and the stage files
+
+**Words you need first.** An **ApplicationSet** is an Argo CD object that creates many Applications from one **template** and **generators**. A generator produces parameter sets (a list of named values); the template is filled in once for each. **Go templates** use `{{ .name }}` to insert a value.
+
+#### `manifests/clusters/dev.yaml`, `staging.yaml`, `production.yaml`: the data
+
+These are plain YAML data files (no `kind`); the ApplicationSet's Git generator reads their keys as parameters.
+
+```yaml
+---
+# Read by the ApplicationSet's Git generator for every cluster labelled stage=dev.
+stage: dev
+# dev follows the tip of main; the later stages are pinned to a commit the earlier stage has proven.
+revision: main
+prune: true
+# How long dev must stay Healthy at a revision before the wave moves on (scripts/gate.sh).
+observeSeconds: 30
+```
+
+```yaml
+---
+stage: staging
+# scripts/seed-repo.sh pins this to the first commit; scripts/promote.sh moves it, one wave at a time.
+revision: main
+prune: true
+observeSeconds: 45
+```
+
+```yaml
+---
+stage: production
+revision: main
+# Production never prunes: a deleted file is flagged, not deleted.
+prune: false
+observeSeconds: 0
+# Documentation of the AppProject's sync window in hub/projects.yaml; a test keeps the two equal.
+syncWindow: "22:00-23:00 UTC"
+```
+
+- `stage` names the stage. `revision` is what the stage follows: `main` for dev; staging's and production's `main` is replaced by a commit hash when the repository is seeded and moved by `promote.sh`. `prune` says whether Argo CD may delete objects that left Git (true for dev and staging, **false for production**: a deleted file is flagged, not deleted). `observeSeconds` is how long the stage must stay Healthy at a commit before the next wave starts (30, 45, 0). `syncWindow` (production only) documents the window in the AppProject; a test keeps the two equal.
+
+#### `manifests/hub/appset-web.yaml`
+
+```yaml
+---
+# One Application per registered cluster that carries the label app=web, built from the cluster's own labels and
+# from clusters/<stage>.yaml. Registering a fourth cluster adds an Application with no new manifest.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: web-fleet
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - matrix:
+        generators:
+          - clusters:
+              selector:
+                matchLabels:
+                  app: web
+          - git:
+              repoURL: http://git-server.git-server.svc.cluster.local/gitops-fleet.git
+              revision: main
+              # Re-read clusters/*.yaml every 20 seconds (the default is three minutes), so a pinned revision moves quickly.
+              requeueAfterSeconds: 20
+              files:
+                - path: "clusters/{{ .metadata.labels.stage }}.yaml"
+  template:
+    metadata:
+      name: "web-{{ .name }}"
+      labels:
+        app: web
+        stage: "{{ .metadata.labels.stage }}"
+    spec:
+      project: "{{ .metadata.labels.stage }}"
+      source:
+        repoURL: http://git-server.git-server.svc.cluster.local/gitops-fleet.git
+        targetRevision: "{{ .revision }}"
+        path: apps/web/base
+      destination:
+        server: "{{ .server }}"
+        namespace: web
+  # selfHeal everywhere; prune per cluster from its file (production: false).
+  templatePatch: |
+    spec:
+      syncPolicy:
+        automated:
+          selfHeal: true
+          prune: {{ .prune }}
+```
+
+- `goTemplate: true` uses Go templates; `goTemplateOptions: ["missingkey=error"]` turns a missing key into an error instead of an empty text.
+- `generators: - matrix: generators: […]` combines two generators: for every parameter set of the first and every one of the second, one result. The first is a **cluster generator** (`clusters: selector: matchLabels: app: web`): every registered cluster whose Secret has the label `app: web`; it provides `name`, `server` and the Secret's labels (`.metadata.labels.stage`). The second is a **Git generator**: it reads files from the repository (`repoURL`, `revision: main`), re-reading every 20 seconds (`requeueAfterSeconds: 20`; the default is three minutes), and its `files: - path: "clusters/{{ .metadata.labels.stage }}.yaml"` picks the file named for the cluster's stage; each file's keys become parameters.
+- `template` is the Application to create. `metadata.name: "web-{{ .name }}"` and labels from the parameters. `spec.project: "{{ .metadata.labels.stage }}"` uses the stage's project (so production gets the sync window). `source`: the Git repository, `targetRevision: "{{ .revision }}"` (the stage's pin), `path: apps/web/base`. `destination.server: "{{ .server }}"` and `namespace: web`. The values are in quotes because `{` starts a map in YAML.
+- `templatePatch: |` is a block of text (the `|` keeps line breaks) that is rendered and **merged over** the template: it sets `syncPolicy.automated.selfHeal: true` for every Application and `prune: {{ .prune }}` from the stage's file. It is a patch (and not part of `template`) because a template value inside a boolean field only becomes a real YAML boolean after rendering.
+
+#### `manifests/hub/appset-policy.yaml`
+
+```yaml
+---
+# The same pattern for the admission policy: every cluster gets the policy folder from main, so a cluster cannot
+# drift from the fleet's policy without also drifting from everything else it runs.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: policy-fleet
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - clusters:
+        selector:
+          matchLabels:
+            app: web
+  template:
+    metadata:
+      name: "policy-{{ .name }}"
+      labels:
+        app: policy
+    spec:
+      project: fleet-policy
+      source:
+        repoURL: http://git-server.git-server.svc.cluster.local/gitops-fleet.git
+        targetRevision: main
+        path: policy
+      destination:
+        server: "{{ .server }}"
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+```
+
+- The same pattern for the admission policy, with only the **cluster generator**: every cluster gets the `policy/` folder from `main` (`targetRevision: main`, `path: policy`), in the project `fleet-policy`, with prune and self-heal on. The Applications are called `policy-<cluster>`. Because every cluster's policy comes from one folder on `main`, **a cluster cannot have a different policy from the rest**.
+<!-- full-walkthrough:end -->
+
 ## 6. Try it yourself
 
 1. `kubectl --context k3d-fleet-hub -n argocd get applicationsets` : `web-fleet` and `policy-fleet`.

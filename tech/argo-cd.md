@@ -77,6 +77,183 @@ stringData:
 ### Reading state
 `app_field web-dev '{.status.health.status}'` and friends read the hub's Applications by name `web-<stage>`.
 
+<!-- full-walkthrough:begin -->
+### 5.A Full walkthrough: every Argo CD file
+
+**Words you need first.** A **custom resource** is a kind of Kubernetes object added by a program; Argo CD adds `Application`, `AppProject` and `ApplicationSet`. A **namespace** is a named folder of objects; a **ConfigMap** holds named settings.
+
+#### `platform/argocd/namespace.yaml`
+
+```yaml
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: argocd
+```
+
+- Creates the namespace `argocd`, where all of Argo CD's parts run. It has no label because Argo CD's own pods are not restricted.
+
+#### `platform/argocd/controller-settings.yaml`
+
+```yaml
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-cm
+data:
+  # Poll Git every 20 seconds with no random delay (the default is three minutes plus up to a minute).
+  timeout.reconciliation: 20s
+  timeout.reconciliation.jitter: 0s
+```
+
+- A ConfigMap named `argocd-cm`: Argo CD reads its settings from the object with exactly this name. It has no namespace here because the Kustomize file below sets the namespace of everything to `argocd`.
+- `timeout.reconciliation: 20s`: how often Argo CD asks Git whether anything changed. The default is three minutes, too slow to watch in a lesson. `timeout.reconciliation.jitter: 0s` removes the random extra delay Argo CD normally adds to spread load (the default is up to a minute).
+- Kustomize merges this into the real `argocd-cm` that comes with Argo CD's install file. See the Kustomize note.
+
+#### `platform/argocd/kustomization.yaml`
+
+```yaml
+---
+# Argo CD at the version in versions.env (the tag below must match ARGOCD_VERSION), trimmed for a laptop:
+# no Dex (no single sign-on), no notifications, and a short poll interval so the runbook does not wait
+# three minutes for every change.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: argocd
+resources:
+  - namespace.yaml
+  - https://raw.githubusercontent.com/argoproj/argo-cd/v3.5.6/manifests/install.yaml
+patches:
+  - path: controller-settings.yaml
+  - target: { kind: Deployment, name: argocd-dex-server }
+    patch: |-
+      $patch: delete
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: argocd-dex-server
+  - target: { kind: Deployment, name: argocd-notifications-controller }
+    patch: |-
+      $patch: delete
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: argocd-notifications-controller
+```
+
+- (See the Kustomize note for the keys.) What matters here: the install file is downloaded from the exact release `v3.5.6` of Argo CD; the namespace of every object is set to `argocd`; the file `controller-settings.yaml` is merged in as a patch; and two parts the lesson does not need, Dex (single sign-on) and the notifications controller, are deleted with `$patch: delete`.
+
+
+#### `platform/root-application.yaml`: the one object applied by hand
+
+```yaml
+---
+# The one object applied by hand on the hub: it syncs hub/ (the ApplicationSets and the projects) from Git, so
+# everything else about the fleet is declared in the repository.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: fleet-hub
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: http://git-server.git-server.svc.cluster.local/gitops-fleet.git
+    targetRevision: main
+    path: hub
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+```
+
+- An **Application** says "keep this part of Git deployed to this place". This one is the "root" (also called an *app of apps*): it syncs the folder `hub/` of the fleet repository into the `argocd` namespace of the hub, which contains the two ApplicationSets and the four projects. So everything else about the fleet is declared in Git, and this is the only object created by hand.
+- `project: default` uses Argo CD's built-in project. `source` is the Git server, branch `main`, path `hub`. `destination.server: https://kubernetes.default.svc` is the cluster Argo CD itself runs in. `syncPolicy.automated` with `prune: true` and `selfHeal: true`: apply changes automatically, delete what leaves Git and undo changes made by hand.
+
+#### `manifests/hub/projects.yaml`: four projects (fences)
+
+```yaml
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: dev
+  namespace: argocd
+spec:
+  description: The dev cluster (and any cluster registered with stage=dev)
+  sourceRepos: ["http://git-server.git-server.svc.cluster.local/gitops-fleet.git"]
+  destinations:
+    - { server: "*", namespace: web }
+  clusterResourceWhitelist:
+    - { group: "", kind: Namespace }
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: staging
+  namespace: argocd
+spec:
+  description: The staging cluster
+  sourceRepos: ["http://git-server.git-server.svc.cluster.local/gitops-fleet.git"]
+  destinations:
+    - { server: "*", namespace: web }
+  clusterResourceWhitelist:
+    - { group: "", kind: Namespace }
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: production
+  namespace: argocd
+spec:
+  description: The production cluster; syncs only inside the window
+  sourceRepos: ["http://git-server.git-server.svc.cluster.local/gitops-fleet.git"]
+  destinations:
+    - { server: "*", namespace: web }
+  clusterResourceWhitelist:
+    - { group: "", kind: Namespace }
+  syncWindows:
+    # Production may sync from 22:00 for one hour, UTC. Outside it, a change waits as OutOfSync.
+    - kind: allow
+      schedule: "0 22 * * *"
+      duration: 1h
+      timeZone: UTC
+      applications: ["*"]
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: fleet-policy
+  namespace: argocd
+spec:
+  description: The admission policy, identical in every cluster
+  sourceRepos: ["http://git-server.git-server.svc.cluster.local/gitops-fleet.git"]
+  destinations:
+    - { server: "*", namespace: "*" }
+  clusterResourceWhitelist:
+    - { group: admissionregistration.k8s.io, kind: ValidatingAdmissionPolicy }
+    - { group: admissionregistration.k8s.io, kind: ValidatingAdmissionPolicyBinding }
+```
+
+- An **AppProject** limits what the Applications in it may do. There is one per stage plus one for the policy; the three stage projects are the same, and `production` adds a **sync window**.
+- `description` is text. `sourceRepos` is the list of Git addresses allowed (only the fleet repository). `destinations`: `{ server: "*", namespace: web }` allows deploying to any registered cluster but only into the namespace `web`. `clusterResourceWhitelist`: the only cluster-wide kind allowed is `Namespace` (`group: ""` is the core API group).
+- `syncWindows` (production only): `kind: allow` makes this an allow window; `schedule: "0 22 * * *"` is a **cron expression** — five fields: minute `0`, hour `22`, any day of month, any month, any weekday — so it opens at 22:00 every day; `duration: 1h`; `timeZone: UTC`; `applications: ["*"]` applies to every Application of the project. Outside the window a change waits as `OutOfSync`.
+- `fleet-policy` allows the policy objects (`ValidatingAdmissionPolicy` and its binding, in the group `admissionregistration.k8s.io`) in any namespace of any cluster.
+
+#### `platform/argocd/*`: see above
+
+The install files (`namespace.yaml`, `controller-settings.yaml`, `kustomization.yaml`) are explained at the top of this section and in the Kustomize note. `controller-settings.yaml` sets the poll to 20 seconds, which the best-case calculation reads.
+
+#### The cluster registration Secret (created by `register-cluster.sh`)
+
+A workload cluster is registered by a Secret in the hub's `argocd` namespace. The labels `argocd.argoproj.io/secret-type: cluster` (makes it a registered cluster), `app: web` and `stage: <stage>` (what the ApplicationSet selects on), and the keys `name`, `server` and `config` (a JSON text with the access token and the cluster's certificate) are written by the script's here-document (see the Bash note). Deleting the Secret deregisters the cluster and the generated Application disappears.
+<!-- full-walkthrough:end -->
+
 ## 6. Try it yourself
 
 1. `kubectl --context k3d-fleet-hub -n argocd get applications` : seven Applications after `make up`.

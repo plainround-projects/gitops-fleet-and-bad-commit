@@ -78,6 +78,64 @@ spec:
 
 In `04-policy.sh privileged` the script edits the Deployment to add `privileged: true` (and `allowPrivilegeEscalation: true`, or the built-in validation would refuse it first, with a different message), commits, pins staging and production to it, and waits for each stage's sync to **fail**. It checks that each message contains the policy text, then runs `kubectl run attacker --privileged` directly in each cluster and extracts `denied the request: ...` from the error: the policy applies to people too, not only to the controller. Because the policy is in `main` and every cluster's `policy-<name>` Application tracks `main`, no cluster can have a different policy.
 
+<!-- full-walkthrough:begin -->
+### 5.A Full walkthrough: the whole policy file
+
+**Words you need first.** When you create or change an object, the Kubernetes **API server** (the front door of the cluster) runs it through **admission**: checks that can refuse the request before the object is stored. A **ValidatingAdmissionPolicy** is such a check written in **CEL**, the Common Expression Language: a small language for yes/no conditions. A **binding** says where a policy applies and what to do when it is violated.
+
+```yaml
+---
+# Admission policy, evaluated by the Kubernetes API server itself (no webhook, no extra pods), identical in every
+# cluster because every cluster's Application for it points here. It rejects privileged containers and images from
+# outside the plainround/ registry prefix.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: no-privileged-or-foreign-images
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["apps"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["deployments"]
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["pods"]
+  variables:
+    - name: containers
+      expression: "has(object.spec.template) ? object.spec.template.spec.containers : object.spec.containers"
+  validations:
+    - expression: >-
+        variables.containers.all(c, !has(c.securityContext) || !has(c.securityContext.privileged) ||
+        c.securityContext.privileged == false)
+      message: "privileged containers are not allowed"
+    - expression: "variables.containers.all(c, c.image.startsWith('plainround/'))"
+      message: "images must come from plainround/"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: no-privileged-or-foreign-images
+spec:
+  policyName: no-privileged-or-foreign-images
+  validationActions: ["Deny"]
+  matchResources:
+    namespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values: ["kube-system", "kube-public", "kube-node-lease", "local-path-storage", "argocd"]
+```
+
+- The first object is the policy. `failurePolicy: Fail` means that if the policy itself cannot be evaluated the request is refused (fail closed). `matchConstraints.resourceRules` lists what it looks at: `apiGroups: ["apps"]`, `resources: ["deployments"]` and the core group `""` with `pods`, on `CREATE` and `UPDATE`.
+- `variables` defines a reusable value: `containers` is `has(object.spec.template) ? object.spec.template.spec.containers : object.spec.containers`. In CEL, `has(x.y)` tests that a field exists and `a ? b : c` is a conditional: a Deployment keeps its containers under `spec.template.spec`, a Pod directly under `spec`, so this one variable works for both.
+- `validations` is a list of conditions that must all be **true**; when one is false the request is refused with its `message`. The first (`>-` is a folded block: the two lines are joined into one expression): `variables.containers.all(c, !has(c.securityContext) || !has(c.securityContext.privileged) || c.securityContext.privileged == false)` reads "for every container `c`: it has no security settings, or no `privileged` field, or `privileged` is false". The message is `privileged containers are not allowed`. The second: `variables.containers.all(c, c.image.startsWith('plainround/'))`, message `images must come from plainround/`.
+- The second object is the **binding**: `policyName` names the policy; `validationActions: ["Deny"]` refuses violating requests (other actions only warn or audit); `matchResources.namespaceSelector.matchExpressions` selects namespaces by their name label with the operator `NotIn`, excluding the system namespaces and `argocd`, whose own images do not come from `plainround/` and must keep working.
+<!-- full-walkthrough:end -->
+
 ## 6. Try it yourself
 
 1. `kubectl --context k3d-fleet-dev get validatingadmissionpolicy,validatingadmissionpolicybinding` : both objects.

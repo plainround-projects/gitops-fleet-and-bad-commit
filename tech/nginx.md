@@ -60,6 +60,43 @@ location ~ ^/.+\.git/(HEAD|info/refs|objects/info/.*|git-(upload|receive)-pack)$
 ```
 The regular expression matches only the Git protocol paths of a repository named `*.git`. The block passes them over a Unix socket to `fcgiwrap`, telling it which program to run (`SCRIPT_FILENAME`), where the repositories are (`GIT_PROJECT_ROOT`), that every repository may be served (`GIT_HTTP_EXPORT_ALL` empty means "yes"), and the request path (`PATH_INFO`). `REMOTE_USER local` marks pushes as coming from a user, which `git-http-backend` needs to allow `receive-pack`. `client_max_body_size 50m` allows larger pushes. There is **no authentication**: this server is for local use and is only reachable on `127.0.0.1`.
 
+<!-- full-walkthrough:begin -->
+### 5.A Full walkthrough: both nginx files
+
+**Words you need first.** A **web server** is a program that listens on a port and answers web requests. nginx reads a configuration of **blocks** (`name { … }`) and **directives** (`name value;`, each ending with a semicolon).
+
+#### `docker/web/default.conf.template`: the demo application
+
+```nginx
+server {
+  listen 8080;
+  server_name _;
+
+  location = /healthz {
+    default_type text/plain;
+    return 200 "ok\n";
+  }
+
+  location = /version {
+    default_type text/plain;
+    return 200 "${APP_VERSION}\n";
+  }
+
+  location = / {
+    default_type text/plain;
+    return 200 "${GREETING}\n";
+  }
+}
+```
+
+- `server { … }` describes one site. `listen 8080;` listens on port 8080. `server_name _;` matches any host name.
+- `location = /healthz { … }` handles requests for exactly that path: `default_type text/plain;` sets the type of the answer, `return 200 "ok\n";` answers status 200 (success) with the text `ok` and a line break.
+- `/version` returns `${APP_VERSION}` and `/` returns `${GREETING}`. A **template** has `${NAME}` placeholders. The nginx image used here replaces them with the container's environment variables when the container starts (a program called `envsubst` does it) and writes the result to `/etc/nginx/conf.d/default.conf`. So `GREETING` (from the ConfigMap) and `APP_VERSION` (set when the image was built) appear in the page.
+
+
+The Git server's `nginx.conf` is walked through under the Docker note (it sits with the Git server's Dockerfile and entrypoint).
+<!-- full-walkthrough:end -->
+
 ## 6. Try it yourself
 
 1. `docker run --rm -p 18080:8080 -e GREETING=hello -e APP_VERSION=x plainround/web:1.0.0` then `curl -s localhost:18080/healthz` : `ok`.

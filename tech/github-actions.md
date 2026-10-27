@@ -42,6 +42,69 @@ jobs:
 
 The `offline` job runs `make test-offline` and `make audit`. The `cluster` job uses `helm/kind-action@v1` with `install_only: true` (install the `kind` program but create no cluster), appends `CLUSTER_PROVIDER=kind` to `${GITHUB_ENV}` (kind is the conventional choice on a runner), then `make up` and `make test-cluster`. These jobs have not run on GitHub; the repository has not been pushed.
 
+<!-- full-walkthrough:begin -->
+### 5.A Full walkthrough: the whole `ci.yml`
+
+**Words you need first.** GitHub can run a **workflow** (a YAML file in `.github/workflows/`) on its own machines whenever something happens, such as a push. A workflow has **jobs**, each on a fresh virtual machine (a **runner**), and each job has **steps**: a shell command (`run:`) or a ready-made **action** (`uses:`).
+
+```yaml
+---
+name: ci
+
+on: [push, pull_request]
+
+
+jobs:
+  lint:
+    name: yamllint, kubeconform, shellcheck, ruff, mypy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install the tools
+        run: ./scripts/ci-install-tools.sh
+      - run: make lint
+
+  offline:
+    name: Unit tests and manifest checks with coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install the tools
+        run: ./scripts/ci-install-tools.sh
+      - run: make test-offline
+      - run: make audit
+
+  fleet:
+    name: Four kind clusters, Argo CD and the scripted runbook (a 90-second controller outage)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: helm/kind-action@v1
+        with:
+          install_only: true
+      - name: Use kind on the runner
+        run: echo "CLUSTER_PROVIDER=kind" >> "${GITHUB_ENV}"
+      - name: Install the tools
+        run: ./scripts/ci-install-tools.sh
+      - run: make up
+      - run: make test-cluster
+        env:
+          OUTAGE_SECONDS: "90"
+```
+
+- `name: ci`; `on: [push, pull_request]` runs it for every push and pull request. Job `lint`: `actions/checkout@v4` fetches the code, `actions/setup-python@v5` installs Python 3.12 (`with:` passes the input), the step "Install the tools" runs `./scripts/ci-install-tools.sh` (kubeconform), `make lint` runs the linters. Job `offline`: the same set-up, then `make test-offline` and `make audit`.
+- Job `fleet` (named for four clusters): checkout and Python, then `helm/kind-action@v1` with `install_only: true` (installs the `kind` program without creating a cluster), then a step that appends `CLUSTER_PROVIDER=kind` to the file named by `${GITHUB_ENV}` (making it an environment variable in later steps), the tools, `make up`, and `make test-cluster` with `env: OUTAGE_SECONDS: "90"` so the controller outage lasts 90 seconds instead of the lesson's half hour. The repository has not been pushed, so this has not run on GitHub.
+<!-- full-walkthrough:end -->
+
 ## 6. Try it yourself
 
 1. `grep -n 'make ' .github/workflows/ci.yml` : the three `make` targets CI runs.
