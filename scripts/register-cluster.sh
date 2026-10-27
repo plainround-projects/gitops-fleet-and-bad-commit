@@ -22,7 +22,7 @@ wait_for "the service account token to be issued" 60 test -n "$(read_token)"
 token="$(read_token)"
 ca="$(kubectl --context "${context}" -n kube-system get secret argocd-manager-token -o 'jsonpath={.data.ca\.crt}')"
 # The hub reaches the other clusters over the shared Docker network, by the node container's name.
-server="https://$(provider_node "$(cluster_of "${cluster}")"):6443"
+server="https://$(provider_api_host "$(cluster_of "${cluster}")"):6443"
 
 kc apply -f - >/dev/null <<SECRET
 apiVersion: v1

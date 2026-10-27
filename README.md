@@ -120,9 +120,18 @@ Dependency rule: tests depend on the scripts and `tests/support`; scripts depend
 
 - **Docker runs out of memory:** four clusters plus Argo CD need about 6 GB. `docker stats` shows who is using it; close other clusters.
 - **`make up` is slow or a cluster does not start:** the machine is short of CPU or memory (several clusters starting at once is enough). `scripts/cluster-up.sh` takes a machine-wide lock so only one cluster is created at a time and retries up to six times. k3d starts a control plane in seconds; kind's kubeadm has hard deadlines that a starved machine can miss, which is why k3d is the default.
-- **An Application is `Unknown` with a comparison error about the cluster:** `kubectl --context k3d-fleet-hub -n argocd get secret cluster-dev -o yaml` shows the server URL (`https://k3d-fleet-dev-server-0:6443`); the hub reaches the clusters over the shared Docker network `fleet-net`.
+- **An Application is `Unknown` with a comparison error about the cluster:** `kubectl --context k3d-fleet-hub -n argocd get secret cluster-dev -o yaml` shows the server URL (`https://k3d-fleet-dev-serverlb:6443`); the hub reaches the clusters over the shared Docker network `fleet-net`.
 - **Production never applies a pinned commit:** the window is closed. `scripts/runbook/window.sh open` opens the current hour.
 - **A test left the fleet in a strange state:** `scripts/runbook/window.sh closed`, then `git revert` the last runbook commit in `.work/gitops-fleet`, or `make down && make up`.
+
+## Verification status
+
+Verified on 2026-10-27 in the session that built this repository:
+
+- `make lint`: yamllint, shellcheck, ruff, mypy and `scripts/validate.sh` (kustomize, kubeconform against the Kubernetes and Argo CD schemas for the ApplicationSets, projects and the admission policy) all pass.
+- `make test-offline`: 41 tests pass: file shape, the generators, the projects, the policy rules, and the best-case arithmetic.
+
+Not completed in that session, and why: the Mac the repositories were built on was out of memory and swap for most of the night (swap at about 70 GB, load average above 150, Docker's virtual machine at full CPU, and its disk went read-only once), shared with a dozen other builds. kind's control plane failed to start about fifteen times in a row (kubeadm's fixed deadlines), which is why k3d is the default provider; a k3d cluster did start, but its API server then stopped answering and `make up` could not finish. The cluster/stack commands above are written to run on a quiet machine (`make up && make test`); until they have run once on yours, treat the generator, waves, policy, destructive-commit and outage runbook and the cluster tests as unproven. Nothing in this repository was marked passing that did not run.
 
 ## Author and license
 

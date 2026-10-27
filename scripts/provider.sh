@@ -26,6 +26,15 @@ provider_node() { # <cluster>
   esac
 }
 
+# The name other clusters on the shared Docker network use to reach this cluster's API server on port 6443.
+provider_api_host() { # <cluster>
+  case "${CLUSTER_PROVIDER}" in
+    k3d) echo "k3d-$1-serverlb" ;;
+    kind) echo "$1-control-plane" ;;
+    *) die "CLUSTER_PROVIDER must be k3d or kind, not ${CLUSTER_PROVIDER}" ;;
+  esac
+}
+
 provider_exists() { # <cluster>
   case "${CLUSTER_PROVIDER}" in
     k3d) k3d cluster list --no-headers 2>/dev/null | awk '{print $1}' | grep -qx "$1" ;;
@@ -56,7 +65,7 @@ provider_create() {
   done
   case "${CLUSTER_PROVIDER}" in
     k3d)
-      local args=(cluster create "${name}" --servers 1 --agents 0 --image "${K3S_IMAGE}" --wait --timeout 900s
+      local args=(cluster create "${name}" --servers 1 --agents 0 --image "${K3S_IMAGE}" --wait --timeout 1800s
         --k3s-arg "--disable=traefik@server:0" --k3s-arg "--disable=servicelb@server:0"
         --k3s-arg "--disable=metrics-server@server:0")
       local mapping

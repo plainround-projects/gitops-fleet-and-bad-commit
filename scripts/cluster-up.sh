@@ -16,8 +16,9 @@ else
 fi
 context="$(provider_context "${name}")"
 
-# A cluster whose creation was interrupted exists as a container but has no working context; start it over.
-if provider_exists "${name}" && ! kubectl --context "${context}" get nodes >/dev/null 2>&1; then
+# A cluster whose creation was interrupted exists as a container but has no kubectl context; start it over. (A slow API
+# server is not a reason to delete a cluster, so only the missing context counts.)
+if provider_exists "${name}" && ! kubectl config get-contexts -o name | grep -qx "${context}"; then
   log "cluster ${name} is half-made; deleting it"
   provider_delete "${name}"
 fi
