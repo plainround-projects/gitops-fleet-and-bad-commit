@@ -1,0 +1,49 @@
+---
+name: ci
+
+on: [push, pull_request]
+
+
+jobs:
+  lint:
+    name: yamllint, kubeconform, shellcheck, ruff, mypy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install the tools
+        run: ./scripts/ci-install-tools.sh
+      - run: make lint
+
+  offline:
+    name: Unit tests and manifest checks with coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install the tools
+        run: ./scripts/ci-install-tools.sh
+      - run: make test-offline
+      - run: make audit
+
+  fleet:
+    name: Four kind clusters, Argo CD and the scripted runbook (a 90-second controller outage)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: helm/kind-action@v1
+        with:
+          install_only: true
+      - name: Install the tools
+        run: ./scripts/ci-install-tools.sh
+      - run: make up
+      - run: make test-cluster
+        env:
+          OUTAGE_SECONDS: "90"
