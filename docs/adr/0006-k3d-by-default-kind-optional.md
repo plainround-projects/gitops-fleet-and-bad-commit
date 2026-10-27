@@ -21,4 +21,4 @@ The lesson asks for a local cluster (kind or minikube). The scripts must work on
 
 ## Notes for the fleet
 
-- The four clusters share one Docker network (`fleet-net`), created by `scripts/cluster-up.sh`, so the hub reaches the others by the name of their node container (`k3d-fleet-dev-server-0`, or `fleet-dev-control-plane` with kind).
+- The four clusters share one Docker network (`fleet-net`), created by `scripts/cluster-up.sh`, so the hub reaches the others by the name of their API endpoint (`k3d-fleet-dev-serverlb`, or `fleet-dev-control-plane` with kind).
