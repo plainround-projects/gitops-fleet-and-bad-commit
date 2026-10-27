@@ -133,6 +133,11 @@ Verified on 2026-10-27 in the session that built this repository:
 
 Not completed in that session, and why: the Mac the repositories were built on was out of memory and swap for most of the night (swap at about 70 GB, load average above 150, Docker's virtual machine at full CPU, and its disk went read-only once), shared with a dozen other builds. kind's control plane failed to start about fifteen times in a row (kubeadm's fixed deadlines), which is why k3d is the default provider; a k3d cluster did start, but its API server then stopped answering and `make up` could not finish. The cluster/stack commands above are written to run on a quiet machine (`make up && make test`); until they have run once on yours, treat the generator, waves, policy, destructive-commit and outage runbook and the cluster tests as unproven. Nothing in this repository was marked passing that did not run.
 
+Pending capacity (nothing below ran; each is a Docker or cluster step):
+
+- `make up`: pending capacity: run `make up` after Docker Desktop is restarted with free disk (Docker.raw was at its 60 GiB cap on 2026-10-28).
+- `make test-cluster`: pending capacity: run `make test-cluster` after Docker Desktop is restarted with free disk (Docker.raw was at its 60 GiB cap on 2026-10-28).
+
 ## Author and license
 
 Written by Sumit Srivastava. Released under the MIT License, see [LICENSE](LICENSE). Changes are in [CHANGELOG.md](CHANGELOG.md).
