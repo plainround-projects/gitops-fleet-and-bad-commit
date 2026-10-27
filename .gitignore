@@ -1,0 +1,18 @@
+# Local state: the working clone of the repository the hub's Argo CD watches.
+.work/
+.env
+# Python tooling for the tests
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+coverage.xml
+junit.xml
+logs/
+.DS_Store
+.omc/

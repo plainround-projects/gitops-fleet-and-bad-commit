@@ -1,0 +1,21 @@
+---
+extends: default
+ignore: |
+  .venv/
+  .work/
+rules:
+  line-length:
+    max: 140
+  document-start:
+    present: true
+  truthy:
+    allowed-values: ["true", "false"]
+    check-keys: false
+  comments:
+    min-spaces-from-content: 2
+  braces:
+    min-spaces-inside: 0
+    max-spaces-inside: 1
+  brackets:
+    min-spaces-inside: 0
+    max-spaces-inside: 1

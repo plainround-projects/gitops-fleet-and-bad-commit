@@ -1,0 +1,44 @@
+[project]
+name = "gitops-fleet-and-bad-commit-tests"
+version = "0.1.0"
+description = "Cluster and offline tests for the fleet-and-bad-commit GitOps project"
+requires-python = ">=3.12"
+dependencies = ["pyyaml==6.0.3"]
+
+[project.optional-dependencies]
+dev = ["pytest==9.0.2", "pytest-cov==7.0.0", "ruff==0.14.10", "mypy==1.19.1", "yamllint==1.38.0", "types-PyYAML==6.0.12.20250915"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = [".", "scripts"]
+addopts = "-ra --strict-markers"
+markers = [
+  "cluster: needs the kind cluster from `make up` and runs the scripted runbook against it",
+]
+
+[tool.coverage.run]
+source = ["tests/support", "scripts"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 90
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "D", "ANN", "S", "PT", "RUF"]
+ignore = ["D203", "D213"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S603", "S607", "D", "ANN401"]
+"tests/support/**" = ["S101", "S603", "S607", "ANN401"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["tests", "scripts"]
+explicit_package_bases = true
+mypy_path = "scripts:."
