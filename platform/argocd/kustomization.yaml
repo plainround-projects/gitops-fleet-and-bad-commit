@@ -1,0 +1,26 @@
+---
+# Argo CD at the version in versions.env (the tag below must match ARGOCD_VERSION), trimmed for a laptop:
+# no Dex (no single sign-on), no notifications, and a short poll interval so the runbook does not wait
+# three minutes for every change.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: argocd
+resources:
+  - namespace.yaml
+  - https://raw.githubusercontent.com/argoproj/argo-cd/v3.5.6/manifests/install.yaml
+patches:
+  - path: controller-settings.yaml
+  - target: { kind: Deployment, name: argocd-dex-server }
+    patch: |-
+      $patch: delete
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: argocd-dex-server
+  - target: { kind: Deployment, name: argocd-notifications-controller }
+    patch: |-
+      $patch: delete
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: argocd-notifications-controller

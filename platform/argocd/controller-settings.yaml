@@ -1,0 +1,9 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-cm
+data:
+  # Poll Git every 20 seconds with no random delay (the default is three minutes plus up to a minute).
+  timeout.reconciliation: 20s
+  timeout.reconciliation.jitter: 0s
