@@ -1,0 +1,6 @@
+---
+stage: staging
+# scripts/seed-repo.sh pins this to the first commit; scripts/promote.sh moves it, one wave at a time.
+revision: main
+prune: true
+observeSeconds: 45

@@ -1,0 +1,60 @@
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: dev
+  namespace: argocd
+spec:
+  description: The dev cluster (and any cluster registered with stage=dev)
+  sourceRepos: ["http://git-server.git-server.svc.cluster.local/gitops-fleet.git"]
+  destinations:
+    - { server: "*", namespace: web }
+  clusterResourceWhitelist:
+    - { group: "", kind: Namespace }
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: staging
+  namespace: argocd
+spec:
+  description: The staging cluster
+  sourceRepos: ["http://git-server.git-server.svc.cluster.local/gitops-fleet.git"]
+  destinations:
+    - { server: "*", namespace: web }
+  clusterResourceWhitelist:
+    - { group: "", kind: Namespace }
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: production
+  namespace: argocd
+spec:
+  description: The production cluster; syncs only inside the window
+  sourceRepos: ["http://git-server.git-server.svc.cluster.local/gitops-fleet.git"]
+  destinations:
+    - { server: "*", namespace: web }
+  clusterResourceWhitelist:
+    - { group: "", kind: Namespace }
+  syncWindows:
+    # Production may sync from 22:00 for one hour, UTC. Outside it, a change waits as OutOfSync.
+    - kind: allow
+      schedule: "0 22 * * *"
+      duration: 1h
+      timeZone: UTC
+      applications: ["*"]
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: fleet-policy
+  namespace: argocd
+spec:
+  description: The admission policy, identical in every cluster
+  sourceRepos: ["http://git-server.git-server.svc.cluster.local/gitops-fleet.git"]
+  destinations:
+    - { server: "*", namespace: "*" }
+  clusterResourceWhitelist:
+    - { group: admissionregistration.k8s.io, kind: ValidatingAdmissionPolicy }
+    - { group: admissionregistration.k8s.io, kind: ValidatingAdmissionPolicyBinding }

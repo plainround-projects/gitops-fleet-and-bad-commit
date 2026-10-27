@@ -1,0 +1,47 @@
+---
+# One Application per registered cluster that carries the label app=web, built from the cluster's own labels and
+# from clusters/<stage>.yaml. Registering a fourth cluster adds an Application with no new manifest.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: web-fleet
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - matrix:
+        generators:
+          - clusters:
+              selector:
+                matchLabels:
+                  app: web
+          - git:
+              repoURL: http://git-server.git-server.svc.cluster.local/gitops-fleet.git
+              revision: main
+              # Re-read clusters/*.yaml every 20 seconds (the default is three minutes), so a pinned revision moves quickly.
+              requeueAfterSeconds: 20
+              files:
+                - path: "clusters/{{ .metadata.labels.stage }}.yaml"
+  template:
+    metadata:
+      name: "web-{{ .name }}"
+      labels:
+        app: web
+        stage: "{{ .metadata.labels.stage }}"
+    spec:
+      project: "{{ .metadata.labels.stage }}"
+      source:
+        repoURL: http://git-server.git-server.svc.cluster.local/gitops-fleet.git
+        targetRevision: "{{ .revision }}"
+        path: apps/web/base
+      destination:
+        server: "{{ .server }}"
+        namespace: web
+  # selfHeal everywhere; prune per cluster from its file (production: false).
+  templatePatch: |
+    spec:
+      syncPolicy:
+        automated:
+          selfHeal: true
+          prune: {{ .prune }}

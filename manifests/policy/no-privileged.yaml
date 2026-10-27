@@ -1,0 +1,44 @@
+---
+# Admission policy, evaluated by the Kubernetes API server itself (no webhook, no extra pods), identical in every
+# cluster because every cluster's Application for it points here. It rejects privileged containers and images from
+# outside the plainround/ registry prefix.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: no-privileged-or-foreign-images
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["apps"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["deployments"]
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["pods"]
+  variables:
+    - name: containers
+      expression: "has(object.spec.template) ? object.spec.template.spec.containers : object.spec.containers"
+  validations:
+    - expression: >-
+        variables.containers.all(c, !has(c.securityContext) || !has(c.securityContext.privileged) ||
+        c.securityContext.privileged == false)
+      message: "privileged containers are not allowed"
+    - expression: "variables.containers.all(c, c.image.startsWith('plainround/'))"
+      message: "images must come from plainround/"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: no-privileged-or-foreign-images
+spec:
+  policyName: no-privileged-or-foreign-images
+  validationActions: ["Deny"]
+  matchResources:
+    namespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values: ["kube-system", "kube-public", "kube-node-lease", "local-path-storage", "argocd"]

@@ -1,0 +1,12 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: web
+  labels:
+    app.kubernetes.io/part-of: gitops-fleet
+    pod-security.kubernetes.io/enforce: restricted
+  annotations:
+    # A commit that deletes this file must not delete the live namespace and everything in it: the controller
+    # flags the namespace as extra instead (OutOfSync) and a person decides.
+    argocd.argoproj.io/sync-options: Prune=false

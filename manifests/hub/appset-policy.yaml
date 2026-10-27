@@ -1,0 +1,33 @@
+---
+# The same pattern for the admission policy: every cluster gets the policy folder from main, so a cluster cannot
+# drift from the fleet's policy without also drifting from everything else it runs.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: policy-fleet
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - clusters:
+        selector:
+          matchLabels:
+            app: web
+  template:
+    metadata:
+      name: "policy-{{ .name }}"
+      labels:
+        app: policy
+    spec:
+      project: fleet-policy
+      source:
+        repoURL: http://git-server.git-server.svc.cluster.local/gitops-fleet.git
+        targetRevision: main
+        path: policy
+      destination:
+        server: "{{ .server }}"
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true

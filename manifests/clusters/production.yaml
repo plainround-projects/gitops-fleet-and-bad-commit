@@ -1,0 +1,8 @@
+---
+stage: production
+revision: main
+# Production never prunes: a deleted file is flagged, not deleted.
+prune: false
+observeSeconds: 0
+# Documentation of the AppProject's sync window in hub/projects.yaml; a test keeps the two equal.
+syncWindow: "22:00-23:00 UTC"

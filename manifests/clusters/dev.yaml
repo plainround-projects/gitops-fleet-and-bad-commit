@@ -1,0 +1,8 @@
+---
+# Read by the ApplicationSet's Git generator for every cluster labelled stage=dev.
+stage: dev
+# dev follows the tip of main; the later stages are pinned to a commit the earlier stage has proven.
+revision: main
+prune: true
+# How long dev must stay Healthy at a revision before the wave moves on (scripts/gate.sh).
+observeSeconds: 30
