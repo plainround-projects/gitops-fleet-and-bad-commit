@@ -2,7 +2,7 @@
 # Everything `make up` does, in order. Safe to run again.
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
-require docker kind kubectl git curl kubeconform
+require docker kubectl git curl kubeconform
 
 "${ROOT}/scripts/cluster-up.sh" hub
 "${ROOT}/scripts/build-images.sh"

@@ -41,6 +41,8 @@ jobs:
       - uses: helm/kind-action@v1
         with:
           install_only: true
+      - name: Use kind on the runner
+        run: echo "CLUSTER_PROVIDER=kind" >> "${GITHUB_ENV}"
       - name: Install the tools
         run: ./scripts/ci-install-tools.sh
       - run: make up

@@ -22,11 +22,17 @@ GIT_HOST_PORT=30438
 GIT_HOST_URL="http://127.0.0.1:${GIT_HOST_PORT}/gitops-fleet.git"
 WORK_DIR="${ROOT}/.work"
 WORK_CLONE="${WORK_DIR}/gitops-fleet"
-HUB_CONTEXT="kind-${HUB}"
 export WAIT_TIMEOUT OUTAGE_SECONDS HUB HUB_CONTEXT GIT_HOST_URL WORK_CLONE
 
 log() { printf '[%s] %s\n' "$(date +%H:%M:%S)" "$*" >&2; }
 die() { log "error: $*"; exit 1; }
+
+# shellcheck source=provider.sh
+source "${ROOT}/scripts/provider.sh"
+HUB_CONTEXT="$(provider_context "${HUB}")"
+# The clusters of the fleet share one Docker network, so the hub reaches the others by the name of their node container.
+FLEET_NETWORK="fleet-net"
+export FLEET_NETWORK
 
 require() {
   local tool
@@ -60,9 +66,9 @@ wait_for() {
   log "${description}: ok (${waited}s)"
 }
 
-# The kind cluster that runs a stage: fleet-dev, fleet-staging, fleet-production (and fleet-demo4 briefly).
+# The cluster that runs a stage: fleet-dev, fleet-staging, fleet-production (and fleet-demo4 briefly).
 cluster_of() { echo "fleet-$1"; }
-# The host port that reaches the app of a cluster (a kind port mapping onto the Service's NodePort).
+# The host port that reaches the app of a cluster (a published port onto the Service's NodePort).
 host_port_of() {
   case "$1" in
     dev) echo 18101 ;;
@@ -78,7 +84,7 @@ kc() { kubectl --context "${HUB_CONTEXT}" "$@"; }
 wk() {
   local name="$1"
   shift
-  kubectl --context "kind-$(cluster_of "${name}")" "$@"
+  kubectl --context "$(provider_context "$(cluster_of "${name}")")" "$@"
 }
 
 # app_field <application> <jsonpath>: one field of an Application on the hub, empty when it is not there.
@@ -138,23 +144,3 @@ applied_at() {
 # operation_message <stage>: the message of the last sync operation (the admission policy's text, when it refuses).
 operation_message() { app_field "web-$1" '{.status.operationState.message}'; }
 operation_failed() { [[ "$(app_field "web-$1" '{.status.operationState.phase}')" =~ ^(Failed|Error)$ ]]; }
-
-# with_kind_lock <command...>: run one command while holding the machine-wide lock that keeps two `kind create cluster`
-# from starting at once (a busy laptop cannot start two control planes together). The lock is a directory holding the
-# holder's PID; a lock whose holder is gone is removed.
-with_kind_lock() {
-  local lock=/tmp/plainround-kind-create.lock waited=0 holder status
-  until mkdir "${lock}" 2>/dev/null; do
-    holder="$(cat "${lock}/pid" 2>/dev/null || true)"
-    if [ -n "${holder}" ] && ! kill -0 "${holder}" 2>/dev/null; then rm -rf "${lock}"; continue; fi
-    [ "${waited}" -lt 7200 ] || die "gave up waiting for another cluster to finish starting"
-    [ $((waited % 60)) -ne 0 ] || log "another cluster is starting; waiting for ${lock}"
-    sleep 5
-    waited=$((waited + 5))
-  done
-  echo "$$" > "${lock}/pid"
-  status=0
-  "$@" || status=$?
-  rm -rf "${lock}"
-  return "${status}"
-}

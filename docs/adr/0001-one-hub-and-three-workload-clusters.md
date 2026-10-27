@@ -6,7 +6,7 @@ The lesson has three clusters (dev, staging, production), one repository and "a 
 
 ## Decision
 
-A fourth kind cluster, the hub, runs Argo CD and the Git server. The three stage clusters hold only the workload and the admission policy. They are registered with the hub as the lesson's `argocd cluster add` does: a service account and token in the target, a cluster Secret in the hub carrying the labels `app=web` and `stage=<stage>`.
+A fourth cluster, the hub, runs Argo CD and the Git server. The three stage clusters hold only the workload and the admission policy. They are registered with the hub as the lesson's `argocd cluster add` does: a service account and token in the target, a cluster Secret in the hub carrying the labels `app=web` and `stage=<stage>`.
 
 ## Alternatives
 
@@ -15,6 +15,6 @@ A fourth kind cluster, the hub, runs Argo CD and the Git server. The three stage
 
 ## Consequences
 
-- Five kind clusters exist for a moment during the fourth-cluster experiment; the Docker memory budget is the hard limit (the README states it).
+- Five clusters exist for a moment during the fourth-cluster experiment; the Docker memory budget is the hard limit (the README states it).
 - Stopping the hub's application-controller pauses reconciliation for all three stages at once. The experiment therefore proves "paused" by drifting production during the outage and showing the drift survive it, instead of by comparing with a controller that kept running elsewhere.
 - The controller reaches the other clusters over the shared Docker network by the node container's name, and its token is `cluster-admin` there (what `argocd cluster add` grants). A production setup would scope it.

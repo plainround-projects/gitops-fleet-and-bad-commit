@@ -5,7 +5,7 @@
 #   build-images.sh dev staging production       (or: demo4)
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
-require docker kind
+require docker
 
 build() {
   local context="$1" tag="$2"
@@ -21,9 +21,9 @@ build docker/git-server plainround/git-server:1.0.0 --build-arg "BASE_IMAGE=${GI
 
 for target in "$@"; do
   log "loading the web images into $(cluster_of "${target}")"
-  kind load docker-image --name "$(cluster_of "${target}")" plainround/web:1.0.0 plainround/web:1.1.0
+  provider_load_images "$(cluster_of "${target}")" plainround/web:1.0.0 plainround/web:1.1.0
 done
 if [ "$#" -eq 0 ]; then
   log "loading the Git server image into ${HUB}"
-  kind load docker-image --name "${HUB}" plainround/git-server:1.0.0
+  provider_load_images "${HUB}" plainround/git-server:1.0.0
 fi

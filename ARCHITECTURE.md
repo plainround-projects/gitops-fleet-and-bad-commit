@@ -7,12 +7,12 @@ This document describes what is in this repository and why it is shaped this way
 | Component | Where it lives | What it owns |
 | --- | --- | --- |
 | **gitops-fleet** | the working clone `.work/gitops-fleet`, seeded from [`manifests/`](manifests), served by the hub's Git server | The whole fleet as files: `clusters/<stage>.yaml` (the revision, prune and observation time of each stage), `apps/web/base` (the app), `hub/` (the ApplicationSets and the projects) and `policy/`. |
-| **Hub** (kind cluster `fleet-hub`) | [`scripts/cluster-up.sh hub`](scripts/cluster-up.sh) | Argo CD v3.5.6, the Git server, nothing else. The only place a controller runs. [ADR 0001](docs/adr/0001-one-hub-and-three-workload-clusters.md). |
+| **Hub** (cluster `fleet-hub`) | [`scripts/cluster-up.sh hub`](scripts/cluster-up.sh) | Argo CD v3.5.6, the Git server, nothing else. The only place a controller runs. [ADR 0001](docs/adr/0001-one-hub-and-three-workload-clusters.md). |
 | **ApplicationSet web-fleet** | [`manifests/hub/appset-web.yaml`](manifests/hub/appset-web.yaml) | A matrix of the cluster generator (every registered cluster labelled `app=web`) and a Git file generator (`clusters/<stage>.yaml`, read for the cluster's `stage` label). It produces one `Application` per cluster; its template patch sets `selfHeal: true` everywhere and `prune` from the stage's file. |
 | **ApplicationSet policy-fleet** | [`manifests/hub/appset-policy.yaml`](manifests/hub/appset-policy.yaml) | The same cluster selector, one `policy-<cluster>` Application per cluster, all pointing at `policy/` on `main`. |
 | **AppProjects** | [`manifests/hub/projects.yaml`](manifests/hub/projects.yaml) | `dev`, `staging`, `production` (the last with the sync window) and `fleet-policy`. Each allows one repository and the namespaces and cluster-scoped kinds its Applications need. |
 | **Root Application** | [`platform/root-application.yaml`](platform/root-application.yaml) | The one object applied by hand; it syncs `hub/` from Git, so the generators and projects are changed by commits. |
-| **dev, staging, production** (kind clusters) | `fleet-dev`, `fleet-staging`, `fleet-production`; registered by [`register-cluster.sh`](scripts/register-cluster.sh) | Only the workload (`web` namespace) and the admission policy. Each publishes its app on a host port for the traffic test. |
+| **dev, staging, production** (clusters) | `fleet-dev`, `fleet-staging`, `fleet-production`; registered by [`register-cluster.sh`](scripts/register-cluster.sh) | Only the workload (`web` namespace) and the admission policy. Each publishes its app on a host port for the traffic test. |
 | **Admission policy** | [`manifests/policy/no-privileged.yaml`](manifests/policy/no-privileged.yaml) | A `ValidatingAdmissionPolicy` and its binding: privileged containers and images outside `plainround/` are refused for Deployments and Pods, in every namespace except the system ones. [ADR 0003](docs/adr/0003-native-admission-policy.md). |
 | **Health gate** | [`scripts/gate.sh`](scripts/gate.sh) | Succeeds when a stage applied a commit and stayed Healthy for its `observeSeconds`; fails at once when the stage turns Degraded or its sync is refused. |
 | **Waves** | [`scripts/promote.sh`](scripts/promote.sh) | Gate dev, pin staging, gate staging, pin production. Each pin is a commit to `clusters/<stage>.yaml`. [ADR 0002](docs/adr/0002-waves-by-pinned-revisions.md). |
@@ -113,7 +113,7 @@ A change that fails its health check in dev closes the first gate: `promote.sh` 
 
 ## Limits of the teaching build against production
 
-- **Four kind clusters on one machine.** Real clusters are separate failure domains; here a Docker VM is the shared fate.
+- **Four clusters on one machine.** Real clusters are separate failure domains; here a Docker VM is the shared fate.
 - **The hub's token is `cluster-admin` in each cluster** (what `argocd cluster add` grants). Production scopes it.
 - **No authentication on the Git server**, loopback only.
 - **The gate is a script a person runs.** A production fleet runs it in CI or in a promotion controller, with metrics from the app (error rate, latency) beside Kubernetes health.

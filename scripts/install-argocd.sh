@@ -10,7 +10,7 @@ pinned="$(grep -oE 'argo-cd/v[0-9.]+/' "${ROOT}/platform/argocd/kustomization.ya
 log "installing Argo CD ${ARGOCD_VERSION} on the hub"
 # Server-side apply: the ApplicationSet CRD is too large for the client-side last-applied annotation.
 kc apply --server-side --force-conflicts -k "${ROOT}/platform/argocd" >/dev/null
-kc -n argocd rollout status statefulset/argocd-application-controller --timeout=300s
+kc -n argocd rollout status statefulset/argocd-application-controller --timeout="${WAIT_TIMEOUT}s"
 for deployment in argocd-repo-server argocd-applicationset-controller argocd-redis; do
-  kc -n argocd rollout status "deployment/${deployment}" --timeout=300s
+  kc -n argocd rollout status "deployment/${deployment}" --timeout="${WAIT_TIMEOUT}s"
 done

@@ -13,8 +13,9 @@ Three local clusters (dev, staging, production) managed from one repository by A
 
 | Tool | Version | Used for |
 | --- | --- | --- |
-| Docker | 24 or newer (tested with 24.0.6), **8 GB or more for its VM** | four kind nodes at once (a fifth for a few minutes in step 2) |
-| kind | 0.33 or newer (tested with 0.33.0) | the clusters (`kindest/node:v1.35.8`, pinned by digest in `versions.env`) |
+| Docker | 24 or newer (tested with 24.0.6), **8 GB or more for its VM** | four cluster nodes at once (a fifth for a few minutes in step 2) |
+| k3d | 5.9 or newer (tested with 5.9.0, k3s v1.35.5) | the local cluster, the default (`brew install k3d`); the k3s image is pinned in `versions.env` |
+| kind | 0.33 or newer (tested with 0.33.0) | optional: `CLUSTER_PROVIDER=kind make up` uses kind (`kindest/node:v1.35.8`, pinned by digest in `versions.env`) |
 | kubectl | 1.35 (includes Kustomize) | every script |
 | kubeconform | 0.8 | the schema check in the pre-push hook and `make lint` (`brew install kubeconform`) |
 | shellcheck, yamllint | any recent | `make lint` |
@@ -81,7 +82,7 @@ The controller is not in the request path of the workload: it reconciles toward 
 
 Only what the lesson scopes out, plus where this build differs from the lesson's text:
 
-- Four kind clusters on one machine: the hub is a separate cluster so the controller can be stopped without touching a stage ([ADR 0001](docs/adr/0001-one-hub-and-three-workload-clusters.md)). "Stop the controller in the production cluster" becomes "stop the hub's controller", and the experiment proves it was stopped by drifting production and showing the drift survive.
+- Four clusters (k3d, or kind) on one machine: the hub is a separate cluster so the controller can be stopped without touching a stage ([ADR 0001](docs/adr/0001-one-hub-and-three-workload-clusters.md)). "Stop the controller in the production cluster" becomes "stop the hub's controller", and the experiment proves it was stopped by drifting production and showing the drift survive.
 - Admission policy is the Kubernetes API server's own `ValidatingAdmissionPolicy`, not Kyverno or Gatekeeper ([ADR 0003](docs/adr/0003-native-admission-policy.md)); the rejection text is the API server's, not Kyverno's.
 - Waves are pinned revisions rather than a polling script that calls `argocd app sync` ([ADR 0002](docs/adr/0002-waves-by-pinned-revisions.md)); all three Applications keep self-heal.
 - Observation windows are 30 and 45 seconds, not 5 and 10 minutes; the poll is 20 seconds.
@@ -103,7 +104,7 @@ platform/                    what the hub needs besides the repository
   cluster-access/            the service account the hub uses in each workload cluster
   root-application.yaml      the one object applied by hand
 docker/                      web (the demo app) and git-server images
-scripts/                     up, down, cluster-up, register-cluster, seed-repo, gate, promote, best-case, validate ...
+scripts/                     up, down, provider (k3d or kind), cluster-up, register-cluster, seed-repo, gate, promote, best-case, validate ...
 scripts/runbook/             one script per lesson step; the tests call these
 scripts/check_clusters.py    checks the shape of clusters/*.yaml and that the window matches the project
 tests/support/               typed helpers: command runner, polling with an injected clock, a kubectl view of the Applications
@@ -118,8 +119,8 @@ Dependency rule: tests depend on the scripts and `tests/support`; scripts depend
 ## Troubleshooting
 
 - **Docker runs out of memory:** four clusters plus Argo CD need about 6 GB. `docker stats` shows who is using it; close other clusters.
-- **`make up` seems stuck at "Preparing nodes" or "Starting control-plane":** the machine is busy. `scripts/cluster-up.sh` takes a machine-wide lock so only one `kind create cluster` runs at a time, retries up to six times, and gives the node a larger CPU share.
-- **An Application is `Unknown` with a comparison error about the cluster:** `kubectl --context kind-fleet-hub -n argocd get secret cluster-dev -o yaml` shows the server URL (`https://fleet-dev-control-plane:6443`); the hub reaches the clusters over the Docker network `kind`.
+- **`make up` is slow or a cluster does not start:** the machine is short of CPU or memory (several clusters starting at once is enough). `scripts/cluster-up.sh` takes a machine-wide lock so only one cluster is created at a time and retries up to six times. k3d starts a control plane in seconds; kind's kubeadm has hard deadlines that a starved machine can miss, which is why k3d is the default.
+- **An Application is `Unknown` with a comparison error about the cluster:** `kubectl --context k3d-fleet-hub -n argocd get secret cluster-dev -o yaml` shows the server URL (`https://k3d-fleet-dev-server-0:6443`); the hub reaches the clusters over the shared Docker network `fleet-net`.
 - **Production never applies a pinned commit:** the window is closed. `scripts/runbook/window.sh open` opens the current hour.
 - **A test left the fleet in a strange state:** `scripts/runbook/window.sh closed`, then `git revert` the last runbook commit in `.work/gitops-fleet`, or `make down && make up`.
 

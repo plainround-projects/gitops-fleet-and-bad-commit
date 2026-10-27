@@ -17,7 +17,8 @@ def test_the_three_applications_were_generated_not_written(hub: Kube) -> None:
 def test_each_application_points_at_its_own_cluster_and_its_stage_project(hub: Kube) -> None:
     servers = {stage: hub.application(f"web-{stage}").server for stage in ("dev", "staging", "production")}
 
-    assert servers == {stage: f"https://fleet-{stage}-control-plane:6443" for stage in servers}
+    assert all(servers[stage].startswith("https://") and f"fleet-{stage}" in servers[stage] for stage in servers)
+    assert all(server.endswith(":6443") for server in servers.values())
     projects = {stage: hub.get("application", f"web-{stage}", "argocd")["spec"]["project"] for stage in servers}
     assert projects == {"dev": "dev", "staging": "staging", "production": "production"}
 

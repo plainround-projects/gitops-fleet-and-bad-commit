@@ -21,6 +21,12 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
             item.add_marker(pytest.mark.cluster)
 
 
+def provider() -> str:
+    """The context prefix of the cluster provider `make up` used: k3d or kind."""
+    contexts = run(["kubectl", "config", "get-contexts", "-o", "name"], check=False).stdout.split()
+    return "k3d" if "k3d-fleet-hub" in contexts else "kind"
+
+
 @pytest.fixture(scope="session")
 def root() -> Path:
     """The repository root."""
@@ -30,7 +36,7 @@ def root() -> Path:
 @pytest.fixture(scope="session")
 def hub() -> Kube:
     """kubectl pinned to the hub; the tests need `make up` to have run."""
-    client = Kube("kind-fleet-hub")
+    client = Kube(f"{provider()}-fleet-hub")
     if client.kubectl("get", "namespace", "argocd", check=False).returncode != 0:
         pytest.fail("the fleet is not up: run `make up` first", pytrace=False)
     return client
@@ -39,7 +45,7 @@ def hub() -> Kube:
 @pytest.fixture(scope="session")
 def clusters(hub: Kube) -> dict[str, Kube]:
     """kubectl for each workload cluster, by stage."""
-    return {stage: Kube(f"kind-fleet-{stage}") for stage in STAGES}
+    return {stage: Kube(f"{provider()}-fleet-{stage}") for stage in STAGES}
 
 
 class Runbook:

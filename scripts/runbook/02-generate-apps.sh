@@ -25,7 +25,7 @@ case "${1:-}" in
   remove)
     "${ROOT}/scripts/register-cluster.sh" --remove demo4
     wait_for "web-demo4 to disappear" 120 application_gone
-    kind delete cluster --name "$(cluster_of demo4)"
+    provider_delete "$(cluster_of demo4)"
     web_applications
     ;;
   *) die "usage: 02-generate-apps.sh list|add|remove" ;;
