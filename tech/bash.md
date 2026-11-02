@@ -848,7 +848,7 @@ kubeconform "${common[@]}" -schema-location default -schema-location "${crds}" "
 exit "${status}"
 ```
 
-- Checks a desired-state tree (default `manifests/`). The options are kept in an **array** `common=(…)` reused twice: strict checking, a summary, the Kubernetes version, and a cache folder. `crds` is an address template for the rules of non-standard kinds (`{{.Group}}` and so on are filled in by `kubeconform`). It uses the project's Python if it exists (`[ -x file ]` tests that a file is executable).
+- Checks a desired-state tree (default `manifests/`). The options are kept in an **array** `common=(…)` reused twice: strict checking, a summary, the Kubernetes version, and a cache folder. `crds` is an address template for the rules of non-standard kinds (`kubeconform` fills in `{{.Group}}`, `{{.ResourceKind}}` and `{{.ResourceAPIVersion}}` for each object it checks). It uses the project's Python if it exists (`[ -x file ]` tests that a file is executable).
 - `status=0`; three checks, each with `|| status=1` so a failure is recorded without stopping: the stage files (`check_clusters.py`), the application base (built by `kubectl kustomize` and piped into `kubeconform … -`, where `-` means standard input), and the `hub/` and `policy/` folders against the standard plus community rules. `exit "${status}"` ends with the result.
 
 **`scripts/ci-install-tools.sh`** (runs only on the automated-checks machine)
