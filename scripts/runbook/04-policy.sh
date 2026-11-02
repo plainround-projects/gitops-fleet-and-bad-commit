@@ -30,14 +30,16 @@ case "${1:-}" in
     echo "${sha}" > "${marker}"
     pin_everywhere "${sha}"
     for stage in "${STAGES[@]}"; do
-      wait_for "${stage} to refuse the sync" "${WAIT_TIMEOUT}" operation_failed "${stage}"
+      wait_for "${stage} to refuse the sync" "${WAIT_TIMEOUT}" operation_failed_at "${stage}" "${sha}"
       message="$(operation_message "${stage}")"
       case "${message}" in *"${expected}"*) ;; *) die "${stage} failed for another reason: ${message}" ;; esac
       echo "${stage}: ${expected} (operation $(app_field "web-${stage}" '{.status.operationState.phase}'))"
     done
     echo "--- the same rule, with no controller involved (kubectl run --privileged in each cluster):"
+    # In the default namespace: the web namespace is also protected by the stricter PodSecurity label, which answers first.
     for stage in "${STAGES[@]}"; do
-      wk "${stage}" -n web run attacker --image=plainround/web:1.0.0 --privileged --restart=Never 2>&1 | grep -o "denied the request: .*" || die "${stage} created a privileged pod"
+      refusal="$(wk "${stage}" -n default run attacker --image=plainround/web:1.0.0 --privileged --restart=Never 2>&1 || true)"
+      grep -o "denied request: .*" <<<"${refusal}" || die "${stage} created a privileged pod"
     done
     ;;
   revert)
@@ -48,7 +50,7 @@ case "${1:-}" in
     for stage in staging production; do set_stage_value "${stage}" revision "${reverted}"; done
     commit_and_push "Pin staging and production to the revert" >/dev/null
     for stage in "${STAGES[@]}"; do
-      wait_for "${stage} Synced and Healthy again" "${WAIT_TIMEOUT}" synced_and_healthy "${stage}"
+      wait_for "${stage} to reconcile at the revert" "${WAIT_TIMEOUT}" reconciled_at "${stage}" "${reverted}"
     done
     ;;
   *) die "usage: 04-policy.sh privileged|foreign|revert" ;;

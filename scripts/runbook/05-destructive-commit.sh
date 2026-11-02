@@ -30,6 +30,7 @@ case "${1:-}" in
     for stage in staging production; do set_stage_value "${stage}" revision "${reverted}"; done
     commit_and_push "Pin staging and production to the revert" >/dev/null
     for stage in "${STAGES[@]}"; do
+      wait_for "${stage} to reconcile at the revert" "${WAIT_TIMEOUT}" reconciled_at "${stage}" "${reverted}"
       wait_for "${stage} Synced again" "${WAIT_TIMEOUT}" sync_is "${stage}" Synced
     done
     echo "every stage is Synced; the production namespace was never removed"

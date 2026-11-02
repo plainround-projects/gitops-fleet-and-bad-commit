@@ -17,7 +17,7 @@ until applied_at "${stage}" "${revision}"; do
     log "gate closed: ${stage} is Degraded at ${revision:0:7}"
     exit 1
   fi
-  if operation_failed "${stage}" && work_git merge-base --is-ancestor "${revision}" "$(app_revision "${stage}")" 2>/dev/null; then
+  if operation_failed "${stage}" && work_git merge-base --is-ancestor "${revision}" "$(operation_revision "${stage}")" 2>/dev/null; then
     log "gate closed: the sync of ${revision:0:7} failed in ${stage}: $(operation_message "${stage}" | cut -c1-160)"
     exit 1
   fi

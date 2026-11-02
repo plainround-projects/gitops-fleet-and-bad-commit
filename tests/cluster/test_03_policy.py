@@ -2,11 +2,19 @@
 
 from __future__ import annotations
 
+from functools import partial
+
 import pytest
 
 from tests.conftest import STAGES, Runbook
 from tests.support.kube import Kube
 from tests.support.shell import run
+from tests.support.waiting import wait_until
+
+
+def gave_up(hub: Kube, stage: str) -> bool:
+    """Whether the controller has given up the stage's sync (Failed or Error)."""
+    return hub.application(f"web-{stage}").operation_phase in {"Failed", "Error"}
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -31,8 +39,10 @@ def test_a_refused_commit_fails_the_sync_in_every_cluster_with_the_policys_messa
     output = runbook.script("runbook/04-policy.sh", kind)
 
     for stage in STAGES:
+        # The controller retries a refused sync five times with a growing delay (about five minutes). Dev follows main,
+        # so it goes through that twice: for the bad commit, and for the commit that pins the later stages.
+        wait_until(f"web-{stage} to give up the sync", partial(gave_up, hub, stage), timeout=1200)
         state = hub.application(f"web-{stage}")
-        assert state.operation_phase in {"Failed", "Error"}
         assert message in state.operation_message
         assert message in output
         assert "ValidatingAdmissionPolicy" in state.operation_message
@@ -52,7 +62,7 @@ def test_a_privileged_pod_is_refused_with_no_controller_involved(clusters: dict[
                 "--context",
                 kube.context,
                 "-n",
-                "web",
+                "default",  # the web namespace's stricter PodSecurity label answers first, in its own words
                 "run",
                 "attacker",
                 "--image=plainround/web:1.0.0",

@@ -12,6 +12,8 @@ if [ "${1:-}" = "--reset" ]; then
 fi
 if [ -d "${WORK_CLONE}/.git" ]; then
   log "working clone already exists at ${WORK_CLONE#"${ROOT}"/}"
+  # A new fleet has an empty Git server even when an old clone is left over: put the clone's history on it.
+  work_git push --quiet --force origin main
   exit 0
 fi
 

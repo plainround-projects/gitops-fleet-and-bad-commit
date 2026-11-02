@@ -127,17 +127,26 @@ Dependency rule: tests depend on the scripts and `tests/support`; scripts depend
 
 ## Verification status
 
-Verified on 2026-10-27 in the session that built this repository:
+Verified on 2026-10-27 (offline) and 2026-11-02 (live) in the sessions that built this repository:
 
 - `make lint`: yamllint, shellcheck, ruff, mypy and `scripts/validate.sh` (kustomize, kubeconform against the Kubernetes and Argo CD schemas for the ApplicationSets, projects and the admission policy) all pass.
 - `make test-offline`: 41 tests pass: file shape, the generators, the projects, the policy rules, and the best-case arithmetic.
 
-Not completed in that session, and why: the Mac the repositories were built on was out of memory and swap for most of the night (swap at about 70 GB, load average above 150, Docker's virtual machine at full CPU, and its disk went read-only once), shared with a dozen other builds. kind's control plane failed to start about fifteen times in a row (kubeadm's fixed deadlines), which is why k3d is the default provider; a k3d cluster did start, but its API server then stopped answering and `make up` could not finish. The cluster/stack commands above are written to run on a quiet machine (`make up && make test`); until they have run once on yours, treat the generator, waves, policy, destructive-commit and outage runbook and the cluster tests as unproven. Nothing in this repository was marked passing that did not run.
+The live run, on 2026-11-02 (k3d: a hub and three workload clusters at once, on a Docker whose virtual machine has 7.7 GiB of memory and was shared with other projects):
 
-Pending capacity (nothing below ran; each is a Docker or cluster step):
+- `make up` creates the hub and the three clusters, installs Argo CD and the Git server, seeds the repository, registers the clusters and waits until the three Applications are Synced and Healthy (about ten minutes).
+- `make run` (the scripted lesson) ran through the generator, the waves with the gate and the window, and the policy refusal; the destructive commit and the outage steps were exercised by the tests below.
+- `make test-cluster`: 16 of 16 pass in `tests/cluster/`. The full run on a fresh fleet gave 15 of 16 (about 28 minutes); the sixteenth, the controller outage, failed only because the clock crossed the hour during the run and closed production's sync window, held back the correction, and was fixed (the test opens the window first) and passed on its own in two and a half minutes. The modules are `test_01_generator.py` (4: the three Applications are generated, each points at its own cluster and project, only dev follows `main`, a fourth cluster gets an Application with no new manifest and leaves with it), `test_02_waves.py` (4: a good change goes dev, gate, staging, gate and waits outside the window; opening the window applies it; a failing health check stops at dev; a revert heals dev), `test_03_policy.py` (5: the policy is in every cluster; a privileged pod and a foreign image each fail the sync everywhere with the policy's words; no cluster ran the refused manifest; a privileged pod is refused with no controller involved), `test_04_destructive_commit.py` (2: the namespace and workloads survive and the controller flags them; a revert clears it) and `test_05_controller_outage.py` (1: the app serves 200 throughout, nothing reconciles while the controller is down, the drift is corrected on its return).
+- `make down` deleted the four clusters and the working clone afterwards.
 
-- `make up`: pending capacity: run `make up` after Docker Desktop is restarted with free disk (Docker.raw was at its 60 GiB cap on 2026-10-28).
-- `make test-cluster`: pending capacity: run `make test-cluster` after Docker Desktop is restarted with free disk (Docker.raw was at its 60 GiB cap on 2026-10-28).
+What the live runs found that the offline checks could not (all fixed; the tech note for `bash.md` explains each in detail):
+
+- `make up` timed out: production syncs only inside its window (22:00 to 23:00 UTC), so its first sync needs the window open; `up.sh` now opens the current hour's window for it and restores the lesson's window afterwards.
+- `commit_and_push` let the pre-push hook's report into the captured commit hash; a leftover working clone was never pushed to a new Git server; a value with a space in the local settings file was run as a shell command.
+- A refused sync is retried for about five minutes with the phase still `Running`; the failure checks read the message, and ignore a failure that belongs to an older commit.
+- After a revert that restores what the cluster already runs, no sync operation takes place; the revert waits now look at the comparison (`reconciled_at`).
+- The privileged-pod check ran in the `web` namespace, whose stricter PodSecurity label answers first in its own words; it runs in `default`. Its text is `denied request:`.
+- In the tests: the Application's pinned revision is read only after the ApplicationSet has noticed the pin; the policy test waits twenty minutes for the retries to end; the outage test opens the window first.
 
 ## Author and license
 

@@ -10,8 +10,15 @@ from tests.conftest import Runbook
 from tests.support.kube import Kube
 
 
+@pytest.fixture(scope="module")
+def open_window(runbook: Runbook) -> None:
+    """Production's window is open: the correction after the outage is a sync, which a closed window holds."""
+    runbook.script("runbook/window.sh", "open")
+
+
 @pytest.fixture(scope="module", autouse=True)
-def stable(settled: None) -> None:
+def stable(open_window: None, settled: None) -> None:
+    """The window opens first, then the fleet must be settled (a production left in drift settles only inside it)."""
     return None
 
 

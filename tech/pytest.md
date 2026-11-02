@@ -276,6 +276,17 @@ def test_a_good_change_goes_dev_then_staging_and_waits_outside_the_window(
     assert clusters["staging"].image("web", "web") == "plainround/web:1.1.0"
     assert hub.application("web-staging").applied_revision == change
     # Production is pinned to the commit but must not have applied it: the window is closed.
+    # The ApplicationSet controller notices the new pin on its own schedule, so wait for the Application to carry it.
+    wait_until(
+        "web-production to carry the pinned commit",
+        lambda: hub.application("web-production").target_revision == change,
+        timeout=300,
+    )
+    wait_until(
+        "web-production to be OutOfSync",
+        lambda: hub.application("web-production").sync_status == "OutOfSync",
+        timeout=300,
+    )
     production = hub.application("web-production")
     assert production.target_revision == change
     assert production.sync_status == "OutOfSync"
@@ -319,6 +330,8 @@ def test_git_revert_returns_dev_to_healthy(hub: Kube, runbook: Runbook) -> None:
 
 - The module fixture `closed_window` (`autouse=True`: applied to every test without being asked) waits for the stages to settle and closes production's window. Test 1: a good change reaches dev and staging (image `1.1.0`), staging's applied revision is the new commit, and production is **pinned** to it but `OutOfSync`, has not applied it and still runs `1.0.0`: the window is closed. Test 2: after `03-waves.sh open`, `wait_until` production runs `1.1.0` and is Synced. Test 3: a change that fails its health check in dev: dev is `Degraded`, the pins of staging and production did **not** move, the script says "pinned to" and staging is still Healthy. Test 4: `git revert` returns dev to Healthy.
 
+- Changed after the first live run: the second test no longer reads production's Application at once after the script returns. The Application's `targetRevision` comes from the ApplicationSet, which notices a new pin in `clusters/production.yaml` on its own schedule (it can take a minute), so the test waits (`wait_until`, up to five minutes) first until the Application carries the pinned commit and then until it reports `OutOfSync`. The first live run failed because the test read the old pin (`5b2b647...`) instead of the new one.
+
 #### `tests/cluster/test_03_policy.py`
 
 ```python
@@ -326,11 +339,19 @@ def test_git_revert_returns_dev_to_healthy(hub: Kube, runbook: Runbook) -> None:
 
 from __future__ import annotations
 
+from functools import partial
+
 import pytest
 
 from tests.conftest import STAGES, Runbook
 from tests.support.kube import Kube
 from tests.support.shell import run
+from tests.support.waiting import wait_until
+
+
+def gave_up(hub: Kube, stage: str) -> bool:
+    """Whether the controller has given up the stage's sync (Failed or Error)."""
+    return hub.application(f"web-{stage}").operation_phase in {"Failed", "Error"}
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -355,8 +376,10 @@ def test_a_refused_commit_fails_the_sync_in_every_cluster_with_the_policys_messa
     output = runbook.script("runbook/04-policy.sh", kind)
 
     for stage in STAGES:
+        # The controller retries a refused sync five times with a growing delay (about five minutes). Dev follows main, so
+        # it goes through that twice: once for the bad commit and once for the commit that pins the later stages.
+        wait_until(f"web-{stage} to give up the sync", partial(gave_up, hub, stage), timeout=1200)
         state = hub.application(f"web-{stage}")
-        assert state.operation_phase in {"Failed", "Error"}
         assert message in state.operation_message
         assert message in output
         assert "ValidatingAdmissionPolicy" in state.operation_message
@@ -376,7 +399,7 @@ def test_a_privileged_pod_is_refused_with_no_controller_involved(clusters: dict[
                 "--context",
                 kube.context,
                 "-n",
-                "web",
+                "default",  # the web namespace's stricter PodSecurity label answers first, in its own words
                 "run",
                 "attacker",
                 "--image=plainround/web:1.0.0",
@@ -391,6 +414,8 @@ def test_a_privileged_pod_is_refused_with_no_controller_involved(clusters: dict[
 ```
 
 - The fixture `open_window` opens production's window so production tries the sync too. Test 1: the policy objects exist in every cluster, and there are three `policy-<stage>` Applications. Test 2 (parametrized over two bad commits: `privileged` and `foreign`): in every stage the sync phase is `Failed` or `Error` and the failure message contains the policy's own text and the words `ValidatingAdmissionPolicy`; then the revert runs. Test 3: no cluster ever ran the refused manifest (the image is still `plainround/web:…`). Test 4: `kubectl run attacker --privileged` directly in each cluster is refused with the policy's message; the long list of strings is the command as separate words.
+
+- Changed after the live runs: (1) the test waits (`wait_until` with `gave_up`, up to 20 minutes) until each stage's operation phase reads `Failed` or `Error`. Argo CD retries a refused sync five times with a growing delay, about five minutes, and dev, which follows `main`, goes through that twice, once for the bad commit and once for the commit that pins the later stages; a ten-minute wait ended four seconds too early. `gave_up` is a small named function and `functools.partial(gave_up, hub, stage)` fixes its arguments in advance (a lambda in a loop would trip the type checker and hide the loop variable). (2) The last test runs `kubectl run --privileged` in the `default` namespace: the `web` namespace has the stricter PodSecurity label, which refuses the pod first with `violates PodSecurity "restricted:latest"` and never shows the policy's text.
 
 #### `tests/cluster/test_04_destructive_commit.py`
 
@@ -451,8 +476,15 @@ from tests.conftest import Runbook
 from tests.support.kube import Kube
 
 
+@pytest.fixture(scope="module")
+def open_window(runbook: Runbook) -> None:
+    """Production's window is open: the correction after the outage is a sync, which a closed window holds."""
+    runbook.script("runbook/window.sh", "open")
+
+
 @pytest.fixture(scope="module", autouse=True)
-def stable(settled: None) -> None:
+def stable(open_window: None, settled: None) -> None:
+    """The window opens first, then the fleet must be settled (a production left in drift settles only inside it)."""
     return None
 
 
@@ -474,6 +506,9 @@ def test_the_app_serves_throughout_and_drift_is_corrected_when_the_controller_re
 ```
 
 - The fixture `stable` waits for settled stages and returns nothing. The test reads `OUTAGE_SECONDS` from the environment (default `90`), runs the outage script with a timeout longer than the outage, and asserts: the drift was applied (`mid-outage drift: replicas=4`), nothing reconciled while the controller was down (`end of outage: replicas=4`), the drift was corrected, production is back to 2 replicas, the traffic log has at least as many lines as the outage had seconds, **every** line is `200` (the application served throughout) and production is Synced.
+
+- Changed after the live runs: the module now opens production's sync window before it checks that the fleet is settled. The correction of drift after the outage is itself a sync, and production's sync window (one hour of the day) holds back every sync outside it: one run crossed an hour boundary during the outage, the window closed, and the drift stayed. The window fixture `open_window` runs `window.sh open` (the window of the current hour); the autouse fixture `stable` lists `open_window` before `settled` in its parameters, and pytest builds the fixtures left to right, so the window opens first and a production left in drift by an earlier failure can settle. (A test that straddles an hour boundary can still lose the window; a rerun fixes it.)
+
 
 #### `tests/unit/test_best_case.py`
 

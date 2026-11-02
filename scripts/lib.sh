@@ -9,8 +9,13 @@ export ROOT
 # shellcheck source=../versions.env
 source "${ROOT}/versions.env"
 if [ -f "${ROOT}/.env" ]; then
-  # shellcheck source=/dev/null
-  source "${ROOT}/.env"
+  # Read NAME=value lines as text, not as shell commands: a value with a space needs no quotes, and a quote pair is dropped.
+  while IFS='=' read -r env_name env_value; do
+    case "${env_name}" in '' | '#'*) continue ;; esac
+    env_value="${env_value#\"}"
+    env_value="${env_value%\"}"
+    export "${env_name}=${env_value}"
+  done <"${ROOT}/.env"
 fi
 
 WAIT_TIMEOUT="${WAIT_TIMEOUT:-300}"
@@ -116,7 +121,7 @@ work_head() { work_git rev-parse HEAD; }
 commit_and_push() {
   work_git add --all
   work_git commit --quiet -m "$1"
-  work_git push --quiet origin main
+  work_git push --quiet origin main >&2  # the pre-push hook prints its report on stdout; this function's stdout is the commit
   work_head
 }
 
@@ -141,6 +146,28 @@ applied_at() {
   [ "${applied}" = "${revision}" ] || work_git merge-base --is-ancestor "${revision}" "${applied}" 2>/dev/null
 }
 
+# reconciled_at <stage> <revision>: the stage compared Git at that commit (or a descendant), is Synced and Healthy, and no
+# sync operation is still running. A revert that restores what the cluster already has needs no sync operation at all, so
+# this looks at the comparison, not at the last operation.
+reconciled_at() {
+  local stage="$1" revision="$2" compared
+  compared="$(app_revision "${stage}")"
+  [ -n "${compared}" ] || return 1
+  [ "$(app_sync "${stage}")" = Synced ] && [ "$(app_health "${stage}")" = Healthy ] || return 1
+  [ "$(app_field "web-${stage}" '{.status.operationState.phase}')" != Running ] || return 1
+  [ "${compared}" = "${revision}" ] || work_git merge-base --is-ancestor "${revision}" "${compared}" 2>/dev/null
+}
+
+# operation_failed_at <stage> <revision>: the last sync operation failed while trying that commit (or a descendant of it),
+# so a failure left over from an older commit does not count.
+operation_failed_at() { operation_failed "$1" && work_git merge-base --is-ancestor "$2" "$(operation_revision "$1")" 2>/dev/null; }
+
+# operation_revision <stage>: the commit the last sync operation tried (a failed operation of an older commit does not count).
+operation_revision() { app_field "web-$1" '{.status.operationState.operation.sync.revision}'; }
+
 # operation_message <stage>: the message of the last sync operation (the admission policy's text, when it refuses).
 operation_message() { app_field "web-$1" '{.status.operationState.message}'; }
-operation_failed() { [[ "$(app_field "web-$1" '{.status.operationState.phase}')" =~ ^(Failed|Error)$ ]]; }
+# The controller retries a refused sync with a growing delay, so the phase stays Running for minutes; the message already says what failed.
+operation_failed() {
+  [[ "$(app_field "web-$1" '{.status.operationState.phase}')" =~ ^(Failed|Error)$ ]] || [[ "$(operation_message "$1")" == *"completed unsuccessfully"* ]]
+}

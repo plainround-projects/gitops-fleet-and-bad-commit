@@ -24,6 +24,17 @@ def test_a_good_change_goes_dev_then_staging_and_waits_outside_the_window(
     assert clusters["staging"].image("web", "web") == "plainround/web:1.1.0"
     assert hub.application("web-staging").applied_revision == change
     # Production is pinned to the commit but must not have applied it: the window is closed.
+    # The ApplicationSet controller notices the new pin on its own schedule, so wait for the Application to carry it.
+    wait_until(
+        "web-production to carry the pinned commit",
+        lambda: hub.application("web-production").target_revision == change,
+        timeout=300,
+    )
+    wait_until(
+        "web-production to be OutOfSync",
+        lambda: hub.application("web-production").sync_status == "OutOfSync",
+        timeout=300,
+    )
     production = hub.application("web-production")
     assert production.target_revision == change
     assert production.sync_status == "OutOfSync"

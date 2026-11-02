@@ -140,8 +140,13 @@ export ROOT
 # shellcheck source=../versions.env
 source "${ROOT}/versions.env"
 if [ -f "${ROOT}/.env" ]; then
-  # shellcheck source=/dev/null
-  source "${ROOT}/.env"
+  # Read NAME=value lines as text, not as shell commands: a value with a space needs no quotes, and a quote pair is dropped.
+  while IFS='=' read -r env_name env_value; do
+    case "${env_name}" in '' | '#'*) continue ;; esac
+    env_value="${env_value#\"}"
+    env_value="${env_value%\"}"
+    export "${env_name}=${env_value}"
+  done <"${ROOT}/.env"
 fi
 
 WAIT_TIMEOUT="${WAIT_TIMEOUT:-300}"
@@ -247,7 +252,7 @@ work_head() { work_git rev-parse HEAD; }
 commit_and_push() {
   work_git add --all
   work_git commit --quiet -m "$1"
-  work_git push --quiet origin main
+  work_git push --quiet origin main >&2  # the pre-push hook prints its report on stdout; this function's stdout is the commit
   work_head
 }
 
@@ -274,7 +279,29 @@ applied_at() {
 
 # operation_message <stage>: the message of the last sync operation (the admission policy's text, when it refuses).
 operation_message() { app_field "web-$1" '{.status.operationState.message}'; }
-operation_failed() { [[ "$(app_field "web-$1" '{.status.operationState.phase}')" =~ ^(Failed|Error)$ ]]; }
+# reconciled_at <stage> <revision>: the stage compared Git at that commit (or a descendant), is Synced and Healthy, and no
+# sync operation is still running. A revert that restores what the cluster already has needs no sync operation at all, so
+# this looks at the comparison, not at the last operation.
+reconciled_at() {
+  local stage="$1" revision="$2" compared
+  compared="$(app_revision "${stage}")"
+  [ -n "${compared}" ] || return 1
+  [ "$(app_sync "${stage}")" = Synced ] && [ "$(app_health "${stage}")" = Healthy ] || return 1
+  [ "$(app_field "web-${stage}" '{.status.operationState.phase}')" != Running ] || return 1
+  [ "${compared}" = "${revision}" ] || work_git merge-base --is-ancestor "${revision}" "${compared}" 2>/dev/null
+}
+
+# operation_failed_at <stage> <revision>: the last sync operation failed while trying that commit (or a descendant of it),
+# so a failure left over from an older commit does not count.
+operation_failed_at() { operation_failed "$1" && work_git merge-base --is-ancestor "$2" "$(operation_revision "$1")" 2>/dev/null; }
+
+# operation_revision <stage>: the commit the last sync operation tried (a failed operation of an older commit does not count).
+operation_revision() { app_field "web-$1" '{.status.operationState.operation.sync.revision}'; }
+
+# The controller retries a refused sync with a growing delay, so the phase stays Running for minutes; the message already says what failed.
+operation_failed() {
+  [[ "$(app_field "web-$1" '{.status.operationState.phase}')" =~ ^(Failed|Error)$ ]] || [[ "$(operation_message "$1")" == *"completed unsuccessfully"* ]]
+}
 ```
 
 - Loaded by every script with `source`; it defines variables and functions. `ROOT` is the repository folder (`cd` in a sub-shell `$( … )`, so the caller's folder does not change). `versions.env` and the optional `.env` are loaded with `source` (`if [ -f file ]` tests that a file exists); the `# shellcheck source=` comments tell the ShellCheck tool which file is loaded.
@@ -535,9 +562,13 @@ done
 for stage in "${STAGES[@]}"; do
   "${ROOT}/scripts/register-cluster.sh" "${stage}" "${stage}"
 done
+# Production syncs only inside its window (22:00-23:00 UTC), so its first sync needs the window open: open the current
+# hour's window, wait for all three stages, then put the lesson's window back.
+"${ROOT}/scripts/runbook/window.sh" open >/dev/null
 for stage in "${STAGES[@]}"; do
   wait_for "web-${stage} to be Synced and Healthy" "${WAIT_TIMEOUT}" synced_and_healthy "${stage}"
 done
+"${ROOT}/scripts/runbook/window.sh" default >/dev/null
 "${ROOT}/scripts/status.sh"
 ```
 
@@ -681,6 +712,8 @@ if [ "${1:-}" = "--reset" ]; then
 fi
 if [ -d "${WORK_CLONE}/.git" ]; then
   log "working clone already exists at ${WORK_CLONE#"${ROOT}"/}"
+  # A new fleet has an empty Git server even when an old clone is left over: put the clone's history on it.
+  work_git push --quiet --force origin main
   exit 0
 fi
 
@@ -920,7 +953,7 @@ until applied_at "${stage}" "${revision}"; do
     log "gate closed: ${stage} is Degraded at ${revision:0:7}"
     exit 1
   fi
-  if operation_failed "${stage}" && work_git merge-base --is-ancestor "${revision}" "$(app_revision "${stage}")" 2>/dev/null; then
+  if operation_failed "${stage}" && work_git merge-base --is-ancestor "${revision}" "$(operation_revision "${stage}")" 2>/dev/null; then
     log "gate closed: the sync of ${revision:0:7} failed in ${stage}: $(operation_message "${stage}" | cut -c1-160)"
     exit 1
   fi
@@ -1051,6 +1084,7 @@ case "${1:-}" in
     wait_for "web-demo4 to be generated" 120 application_exists
     wait_for "web-demo4 to be Synced and Healthy" "${WAIT_TIMEOUT}" synced_and_healthy demo4
     web_applications
+    wait_for "web-demo4 to answer on its host port" 60 web_get demo4 /
     echo "web-demo4 serves: $(web_get demo4 /)"
     ;;
   remove)
@@ -1155,14 +1189,16 @@ case "${1:-}" in
     echo "${sha}" > "${marker}"
     pin_everywhere "${sha}"
     for stage in "${STAGES[@]}"; do
-      wait_for "${stage} to refuse the sync" "${WAIT_TIMEOUT}" operation_failed "${stage}"
+      wait_for "${stage} to refuse the sync" "${WAIT_TIMEOUT}" operation_failed_at "${stage}" "${sha}"
       message="$(operation_message "${stage}")"
       case "${message}" in *"${expected}"*) ;; *) die "${stage} failed for another reason: ${message}" ;; esac
       echo "${stage}: ${expected} (operation $(app_field "web-${stage}" '{.status.operationState.phase}'))"
     done
     echo "--- the same rule, with no controller involved (kubectl run --privileged in each cluster):"
+    # In the default namespace: the web namespace is also protected by the stricter PodSecurity label, which answers first.
     for stage in "${STAGES[@]}"; do
-      wk "${stage}" -n web run attacker --image=plainround/web:1.0.0 --privileged --restart=Never 2>&1 | grep -o "denied the request: .*" || die "${stage} created a privileged pod"
+      refusal="$(wk "${stage}" -n default run attacker --image=plainround/web:1.0.0 --privileged --restart=Never 2>&1 || true)"
+      grep -o "denied request: .*" <<<"${refusal}" || die "${stage} created a privileged pod"
     done
     ;;
   revert)
@@ -1173,7 +1209,7 @@ case "${1:-}" in
     for stage in staging production; do set_stage_value "${stage}" revision "${reverted}"; done
     commit_and_push "Pin staging and production to the revert" >/dev/null
     for stage in "${STAGES[@]}"; do
-      wait_for "${stage} Synced and Healthy again" "${WAIT_TIMEOUT}" synced_and_healthy "${stage}"
+      wait_for "${stage} to reconcile at the revert" "${WAIT_TIMEOUT}" reconciled_at "${stage}" "${reverted}"
     done
     ;;
   *) die "usage: 04-policy.sh privileged|foreign|revert" ;;
@@ -1217,6 +1253,7 @@ case "${1:-}" in
     for stage in staging production; do set_stage_value "${stage}" revision "${reverted}"; done
     commit_and_push "Pin staging and production to the revert" >/dev/null
     for stage in "${STAGES[@]}"; do
+      wait_for "${stage} to reconcile at the revert" "${WAIT_TIMEOUT}" reconciled_at "${stage}" "${reverted}"
       wait_for "${stage} Synced again" "${WAIT_TIMEOUT}" sync_is "${stage}" Synced
     done
     echo "every stage is Synced; the production namespace was never removed"
@@ -1341,6 +1378,20 @@ OUTAGE_SECONDS=1800
 ```
 
 - The local choices copied to `.env` by `make up`: how long scripts wait and how long the controller outage lasts.
+#### What the live runs changed in these scripts, and why
+
+The first live runs of `make up` and the runbook exposed faults that the offline checks could not see. Each change is quoted above; this is the reason for each.
+
+- **`lib.sh` reads `.env` as text.** `source` would run each line as a shell command, so a value with a space (`NAME=First Last`) is, to the shell, the variable `NAME=First` set for a command called `Last`. The `while` loop reads the file one line at a time: `IFS='='` makes `=` the separator, so `read -r env_name env_value` puts the text before the first `=` in `env_name` and the rest (spaces included) in `env_value`; `case "${env_name}" in '' | '#'*) continue ;; esac` skips blank and comment lines; `${env_value#\"}` and `${env_value%\"}` drop one quote from each end; `export "${env_name}=${env_value}"` creates the variable.
+- **`commit_and_push` sends the push's output to standard error.** Callers capture the function's standard output as the commit hash (`sha="$(commit_and_push ...)"`). The working clone's pre-push hook runs `kubeconform` and prints a report on standard output, which ended up inside the "hash". `>&2` sends standard output to standard error for that one command.
+- **`operation_failed` also accepts the failure message.** Argo CD retries a refused sync (here, by the admission policy) with a growing delay, and for about five minutes the operation's phase reads `Running` while its message already says `one or more synchronization tasks completed unsuccessfully`. `[[ a ]] || [[ b ]]` means "a or b", and `*"text"*` is a pattern that matches any text containing `text`.
+- **`operation_revision` and `operation_failed_at` ignore stale failures.** An operation's message stays after it finishes. Without a check on which commit the failure belongs to, a failure from the previous bad commit looked like a failure of the next commit. `.status.operationState.operation.sync.revision` is the commit the operation tried; `git merge-base --is-ancestor A B` succeeds when commit A is B or one of B's ancestors, so the failure counts only if the operation tried the commit in question or a later one. `gate.sh` uses `operation_revision` for the same reason (it used the revision Git was last *compared* at, which moves ahead of the operation).
+- **`reconciled_at` replaces "Synced and Healthy again" after a revert.** A revert that restores what the cluster already runs needs no sync operation at all: the Application becomes `Synced` by comparison only, and waiting for a new operation (`applied_at`) would wait forever. `reconciled_at` checks the comparison: Git was compared at the revert commit or a later one, the app is `Synced` and `Healthy`, and no operation is `Running`. The earlier wait (`synced_and_healthy`) returned at once, before the revert had been seen, and the next step started while the old operation was still retrying.
+- **`up.sh` opens production's window for the first sync.** The window is 22:00 to 23:00 UTC, so outside it production correctly stays `OutOfSync` and `Missing`, and `make up` timed out waiting for it. `window.sh open` opens the window for the current hour, and `window.sh default` puts the lesson's window back after all three stages are up.
+- **`seed-repo.sh` pushes a leftover clone.** A new fleet has an empty Git server even when `.work/` holds an older clone; the old code stopped at "already exists" and the controller found an empty repository. `--force` replaces whatever the server has.
+- **`02-generate-apps.sh add` waits for the new app to answer.** `wait_for ... 60 web_get demo4 /` retries the request until the new cluster's host port answers; the Application can be `Healthy` a moment before the port does.
+- **`04-policy.sh` runs `kubectl run --privileged` in the `default` namespace.** The `web` namespace carries the stricter PodSecurity label, which refuses a privileged pod first and in its own words (`violates PodSecurity "restricted:latest"`), so the policy's text never appeared. In `default`, only the admission policy applies. `refusal="$(... || true)"` keeps the failing command from stopping the script (`set -e`, `pipefail`), and `grep -o "denied request: .*" <<<"${refusal}"` prints the policy's words (`<<<` feeds a variable to a command as its input). The text is `denied request:`, not `denied the request:` as an earlier version expected.
+
 <!-- full-walkthrough:end -->
 
 ## 6. Try it yourself

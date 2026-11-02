@@ -20,6 +20,7 @@ case "${1:-}" in
     wait_for "web-demo4 to be generated" 120 application_exists
     wait_for "web-demo4 to be Synced and Healthy" "${WAIT_TIMEOUT}" synced_and_healthy demo4
     web_applications
+    wait_for "web-demo4 to answer on its host port" 60 web_get demo4 /
     echo "web-demo4 serves: $(web_get demo4 /)"
     ;;
   remove)
