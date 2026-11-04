@@ -14,7 +14,7 @@ This document describes what is in this repository and why it is shaped this way
 | **Root Application** | [`platform/root-application.yaml`](platform/root-application.yaml) | The one object applied by hand; it syncs `hub/` from Git, so the generators and projects are changed by commits. |
 | **dev, staging, production** (clusters) | `fleet-dev`, `fleet-staging`, `fleet-production`; registered by [`register-cluster.sh`](scripts/register-cluster.sh) | Only the workload (`web` namespace) and the admission policy. Each publishes its app on a host port for the traffic test. |
 | **Admission policy** | [`manifests/policy/no-privileged.yaml`](manifests/policy/no-privileged.yaml) | A `ValidatingAdmissionPolicy` and its binding: privileged containers and images outside `plainround/` are refused for Deployments and Pods, in every namespace except the system ones. [ADR 0003](docs/adr/0003-native-admission-policy.md). |
-| **Health gate** | [`scripts/gate.sh`](scripts/gate.sh) | Succeeds when a stage applied a commit and stayed Healthy for its `observeSeconds`; fails at once when the stage turns Degraded or its sync is refused. |
+| **Health gate** | [`scripts/gate.sh`](scripts/gate.sh) | Reads the `web-<stage>` Application status on the hub (health, sync revision, last operation), not the workload clusters. Succeeds when a stage applied a commit and stayed Healthy for its `observeSeconds`; fails at once when the stage turns Degraded or its sync is refused. |
 | **Waves** | [`scripts/promote.sh`](scripts/promote.sh) | Gate dev, pin staging, gate staging, pin production. Each pin is a commit to `clusters/<stage>.yaml`. [ADR 0002](docs/adr/0002-waves-by-pinned-revisions.md). |
 | **Sync window** | the `production` AppProject, moved by [`runbook/window.sh`](scripts/runbook/window.sh) | Production may sync only inside a one-hour window; outside it a pinned commit waits as `OutOfSync`. |
 | **Protections** | `Prune=false` on the Namespace, `prune: false` in `clusters/production.yaml` | A commit that deletes the namespace's manifest deletes nothing. [ADR 0004](docs/adr/0004-protections-against-a-destructive-commit.md). |
@@ -65,9 +65,9 @@ flowchart LR
     ctl --> pd
     ctl --> ps
     ctl --> pp
-    wd --> gate
+    ctl -- "web-dev status" --> gate
     gate -- "pin staging" --> repo
-    ws --> gate
+    ctl -- "web-staging status" --> gate
     gate -- "pin production" --> repo
 ```
 
