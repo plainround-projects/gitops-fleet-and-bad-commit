@@ -10,6 +10,7 @@ All notable changes to this project are recorded here. The format follows [Keep 
 
 ### Fixed
 
+- ARCHITECTURE.md and README now match the code where they disagreed (see the drawn figures).
 - Findings of the first live runs: production's first sync needs its window, the commit hash kept clean of the hook's report, a leftover clone pushed to a new Git server, settings read as text, failure checks that read the controller's message and ignore older commits, reverts that wait for the comparison, the privileged-pod check in the `default` namespace, and timing in the cluster tests.
 
 ## [0.1.0] - 2026-10-27
