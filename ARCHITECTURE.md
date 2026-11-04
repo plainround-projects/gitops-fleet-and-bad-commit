@@ -26,6 +26,8 @@ Every cluster pulls from the hub's controller; no cluster holds credentials for 
 
 ## Data flow
 
+Drawn versions of this figure and of the walk-through: [the architecture](docs/diagrams/architecture.svg) and [one run](docs/diagrams/flow.svg).
+
 ```mermaid
 flowchart LR
     repo["gitops-fleet<br/>clusters/, apps/, hub/, policy/"]

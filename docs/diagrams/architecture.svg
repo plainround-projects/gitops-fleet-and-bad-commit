@@ -1,0 +1,143 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="860" viewBox="0 0 1200 860" role="img" aria-labelledby="t d">
+<title id="t">A fleet in waves with a health gate</title>
+<desc id="d">The repository gitops-fleet feeds the Application fleet-hub on the hub cluster, which syncs the ApplicationSets web-fleet and policy-fleet. The application-controller, limited by the AppProject production and its sync window, applies the web app with 2 replicas and the admission policy to three clusters: fleet-dev, which tracks main, and fleet-staging and fleet-production, which are pinned. The script gate.sh reads the Application health from the hub and pins the next stage in the repository. Amber: a commit that deletes the production namespace deletes nothing, because of Prune equals false.</desc>
+<style>
+:root{--paper:#ffffff;--ink:#10243d;--mute:#52677f;--accent:#0a6aa8;--good:#19743f;--warn:#8a5a00}
+text{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,'Liberation Mono',monospace;fill:var(--ink)}
+.title{font-family:Georgia,'Iowan Old Style','Times New Roman',serif;font-size:36px}
+.caption{font-size:16px;fill:var(--mute)}
+.name{font-size:20px;font-weight:600}
+.lane{font-size:17px;font-weight:600}
+.sub{font-size:15px;fill:var(--mute)}
+.label{font-size:15px}
+.tag{font-size:15px;fill:var(--mute)}
+.num{font-size:15px;font-weight:700;fill:var(--paper)}
+.legend{font-size:14px;fill:var(--mute)}
+.t-accent{fill:var(--accent)}
+.t-good{fill:var(--good)}
+.t-warn{fill:var(--warn)}
+.t-ink{fill:var(--ink)}
+.b{font-weight:600}
+.paper{fill:var(--paper);stroke:var(--mute);stroke-opacity:.3}
+.grid{fill:url(#grid)}
+.boundary{fill:var(--mute);fill-opacity:.035;stroke:var(--mute);stroke-opacity:.7;stroke-dasharray:6 5}
+.svc{fill:var(--accent);fill-opacity:.08;stroke:var(--accent);stroke-width:1.25}
+.store{fill:var(--mute);fill-opacity:.1;stroke:var(--mute);stroke-width:1.25}
+.rim{fill:none;stroke:var(--mute);stroke-width:1.25}
+.actor{fill:none;stroke:var(--mute);stroke-width:1.25}
+.slot{fill:var(--accent);fill-opacity:.14;stroke:var(--accent);stroke-width:1}
+.note{fill:var(--warn);fill-opacity:.09;stroke:var(--warn);stroke-width:1}
+.win{fill:var(--good);fill-opacity:.09;stroke:var(--good);stroke-width:1}
+.hair{fill:none;stroke:var(--mute);stroke-opacity:.4;stroke-width:1}
+.zone{fill:var(--accent);fill-opacity:.045;stroke:var(--accent);stroke-width:1.25;stroke-dasharray:6 5}
+.stop{fill:none;stroke:var(--warn);stroke-width:4;stroke-linecap:round}
+.mask{fill:var(--paper)}
+.sync,.async,.read,.fail,.ok{fill:none}
+.sync{stroke:var(--accent);stroke-width:1.75;marker-end:url(#a-sync)}
+.async{stroke:var(--accent);stroke-width:1.75;stroke-dasharray:8 6;marker-end:url(#a-async)}
+.read{stroke:var(--mute);stroke-width:1.75;stroke-linecap:round;stroke-dasharray:1 6;marker-end:url(#a-read)}
+.fail{stroke:var(--warn);stroke-width:2;marker-end:url(#a-fail)}
+.ok{stroke:var(--good);stroke-width:1.75;marker-end:url(#a-ok)}
+.dot{fill:var(--accent)}
+.dot-w{fill:var(--warn)}
+.dot-g{fill:var(--good)}
+.head-sync,.head-async{stroke:var(--accent)}
+.head-sync{fill:var(--accent)}
+.head-async,.head-read{fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.head-read{stroke:var(--mute)}
+.head-fail{fill:var(--warn)}
+.head-ok{fill:var(--good)}
+.gridline{fill:none;stroke:var(--mute);stroke-opacity:.09}
+</style>
+<defs>
+<pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path class="gridline" d="M40 0H0V40"/></pattern>
+<marker id="a-sync" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path class="head-sync" d="M0 0L10 5L0 10z"/></marker>
+<marker id="a-async" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="10" markerHeight="10" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path class="head-async" d="M1 1L9 5L1 9"/></marker>
+<marker id="a-read" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="10" markerHeight="10" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path class="head-read" d="M1 1L9 5L1 9"/></marker>
+<marker id="a-fail" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="10" markerHeight="10" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path class="head-fail" d="M0 0L10 5L0 10z"/></marker>
+<marker id="a-ok" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path class="head-ok" d="M0 0L10 5L0 10z"/></marker>
+</defs>
+<rect class="paper" x="0.5" y="0.5" width="1199" height="859" rx="16"/>
+<rect class="grid" x="1" y="1" width="1198" height="858" rx="16"/>
+<text class="title" x="48" y="68">A fleet in waves with a health gate</text>
+<text class="caption" x="48" y="100">One repo, one hub, three clusters in waves. Amber: a commit that deletes the production namespace.</text>
+<path class="store" d="M48 180a124 12 0 0 1 248 0v84a124 12 0 0 1 -248 0z"/>
+<path class="rim" d="M48 180a124 12 0 0 0 248 0"/>
+<text class="name" x="172" y="220" text-anchor="middle">gitops-fleet</text>
+<text class="sub" x="172" y="242" text-anchor="middle">clusters/, apps/,</text>
+<text class="sub" x="172" y="264" text-anchor="middle">hub/, policy/</text>
+<rect class="svc" x="48" y="420" width="248" height="92" rx="12"/>
+<text class="name" x="64" y="452">gate.sh</text>
+<text class="sub" x="64" y="476">Healthy for N seconds</text>
+<rect class="boundary" x="392" y="132" width="520" height="508" rx="14"/>
+<text class="tag" x="408" y="160">Hub cluster: fleet-hub</text>
+<rect class="svc" x="416" y="184" width="472" height="76" rx="12"/>
+<text class="name" x="432" y="216">Application fleet-hub</text>
+<text class="sub" x="432" y="240">syncs hub/</text>
+<rect class="svc" x="416" y="292" width="224" height="92" rx="12"/>
+<text class="name" x="432" y="324">web-fleet</text>
+<text class="sub" x="432" y="348">ApplicationSet</text>
+<text class="sub" x="432" y="370">cluster x stage file</text>
+<rect class="svc" x="664" y="292" width="224" height="92" rx="12"/>
+<text class="name" x="680" y="324">policy-fleet</text>
+<text class="sub" x="680" y="348">ApplicationSet</text>
+<text class="sub" x="680" y="370">policy/ on main</text>
+<rect class="svc" x="416" y="416" width="472" height="92" rx="12"/>
+<text class="name" x="432" y="448">application-controller</text>
+<text class="sub" x="432" y="472">applies every Application</text>
+<rect class="svc" x="664" y="540" width="224" height="76" rx="12"/>
+<text class="name" x="680" y="572">AppProject</text>
+<text class="sub" x="680" y="596">production: window</text>
+<rect class="boundary" x="976" y="132" width="176" height="200" rx="14"/>
+<text class="tag" x="992" y="160">fleet-dev</text>
+<rect class="svc" x="992" y="180" width="144" height="92" rx="12"/>
+<text class="name" x="1008" y="212">web</text>
+<text class="sub" x="1008" y="236">2 replicas</text>
+<text class="sub" x="1008" y="258">tracks main</text>
+<rect class="slot" x="992" y="288" width="144" height="32" rx="6"/>
+<text class="label t-accent" x="1064" y="309" text-anchor="middle">policy</text>
+<rect class="boundary" x="976" y="356" width="176" height="200" rx="14"/>
+<text class="tag" x="992" y="384">fleet-staging</text>
+<rect class="svc" x="992" y="404" width="144" height="92" rx="12"/>
+<text class="name" x="1008" y="436">web</text>
+<text class="sub" x="1008" y="460">2 replicas</text>
+<text class="sub" x="1008" y="482">pinned</text>
+<rect class="slot" x="992" y="512" width="144" height="32" rx="6"/>
+<text class="label t-accent" x="1064" y="533" text-anchor="middle">policy</text>
+<rect class="boundary" x="976" y="580" width="176" height="200" rx="14"/>
+<text class="tag" x="992" y="608">fleet-production</text>
+<rect class="svc" x="992" y="628" width="144" height="92" rx="12"/>
+<text class="name" x="1008" y="660">web</text>
+<text class="sub" x="1008" y="684">2 replicas</text>
+<text class="sub" x="1008" y="706">pinned</text>
+<rect class="slot" x="992" y="736" width="144" height="32" rx="6"/>
+<text class="label t-accent" x="1064" y="757" text-anchor="middle">policy</text>
+<rect class="note" x="416" y="668" width="300" height="124" rx="10"/>
+<text class="label b t-warn" x="432" y="698">05-destructive-commit.sh</text>
+<text class="sub" x="432" y="724">deletes the namespace</text>
+<text class="sub" x="432" y="746">manifest: nothing goes,</text>
+<text class="sub" x="432" y="768">Prune=false</text>
+<path class="read" d="M296 222H416"/>
+<text class="label" x="300" y="210">poll 20 s</text>
+<path class="sync" d="M480 260V292"/>
+<path class="sync" d="M728 260V292"/>
+<path class="sync" d="M480 384V416"/>
+<text class="label t-accent" x="492" y="406">main, pinned</text>
+<path class="sync" d="M728 384V416"/>
+<path class="async" d="M776 540V508"/>
+<text class="label t-accent" x="788" y="530">window</text>
+<path class="sync" d="M888 430H940Q952 430 952 418V244Q952 232 964 232H976"/>
+<path class="sync" d="M888 462H976"/>
+<path class="sync" d="M888 494H940Q952 494 952 506V670Q952 682 964 682H976"/>
+<path class="read" d="M416 462H296"/>
+<text class="label" x="300" y="450">status</text>
+<path class="sync" d="M172 420V288"/>
+<text class="label t-accent" x="184" y="368">pin next stage</text>
+<path class="fail" d="M716 722H976"/>
+<path class="stop" d="M900 710V734"/>
+<text class="label t-warn" x="730" y="710">deletes nothing</text>
+<path class="sync" d="M48 816H112"/><text class="legend" x="124" y="821">sync call</text>
+<path class="async" d="M264 816H328"/><text class="legend" x="340" y="821">async message</text>
+<path class="read" d="M520 816H584"/><text class="legend" x="596" y="821">read</text>
+<path class="fail" d="M696 816H760"/><text class="legend" x="772" y="821">failure path</text>
+</svg>

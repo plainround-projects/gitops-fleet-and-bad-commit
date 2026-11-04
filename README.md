@@ -9,6 +9,24 @@ Three local clusters (dev, staging, production) managed from one repository by A
 | **Level** | Advanced |
 | **Architecture** | [ARCHITECTURE.md](ARCHITECTURE.md), decisions in [docs/adr](docs/adr) |
 
+## Architecture
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/architecture-dark.svg">
+  <img alt="The repository gitops-fleet feeds the hub cluster, where Application fleet-hub syncs the ApplicationSets web-fleet and policy-fleet and the application-controller applies them to fleet-dev, fleet-staging and fleet-production, limited by the AppProject production window. gate.sh reads the health from the hub and pins the next stage. Amber: a commit that deletes the production namespace deletes nothing." src="docs/diagrams/architecture.svg">
+</picture>
+
+Notice that only the hub runs a controller, and that gate.sh reads the Application health there rather than touching the workload clusters.
+
+## How one run flows
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/flow-dark.svg">
+  <img alt="One change goes through the fleet in waves: dev follows main, gate.sh watches it, then staging and production are pinned, production waiting for its sync window. The amber row shows the gate closing when dev turns Degraded." src="docs/diagrams/flow.svg">
+</picture>
+
+The run pins one commit stage by stage behind a health gate; the amber row is the failed dev wave that stops staging and production from ever being pinned.
+
 ## Prerequisites
 
 | Tool | Version | Used for |
